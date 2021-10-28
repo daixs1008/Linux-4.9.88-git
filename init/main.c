@@ -485,7 +485,7 @@ asmlinkage __visible void __init start_kernel(void)
 
 	set_task_stack_end_magic(&init_task);//设置任务堆栈的结束地址
 	smp_setup_processor_id();
-	debug_objects_early_init();  do_fork  task_struct  schedule(void)
+	debug_objects_early_init();  do_fork  task_struct  schedule(void)  nsproxy
 
 	/*
 	 * Set up the the initial canary ASAP:尽快设置好初始熵

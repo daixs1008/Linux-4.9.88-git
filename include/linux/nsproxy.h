@@ -27,14 +27,14 @@ struct fs_struct;
  * As soon as a single namespace is cloned or unshared, the
  * nsproxy is copied.
  */
-struct nsproxy {
+struct nsproxy {  //指向一个命名空间代理。包含除了用户以外的所有其他命名空间的地址
 	atomic_t count;
-	struct uts_namespace *uts_ns;
-	struct ipc_namespace *ipc_ns;
-	struct mnt_namespace *mnt_ns;
-	struct pid_namespace *pid_ns_for_children;
-	struct net 	     *net_ns;
-	struct cgroup_namespace *cgroup_ns;
+	struct uts_namespace *uts_ns;               //主机名和网络信息服务域名 （UNIX Timesharing system）
+	struct ipc_namespace *ipc_ns;               //进程间通信和消息队列
+	struct mnt_namespace *mnt_ns;               //挂载点
+	struct pid_namespace *pid_ns_for_children;  //进程号
+	struct net 	     *net_ns;                   //网络协议栈
+	struct cgroup_namespace *cgroup_ns;         //控制组根目录
 };
 extern struct nsproxy init_nsproxy;
 

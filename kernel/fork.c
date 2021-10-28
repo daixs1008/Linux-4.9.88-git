@@ -1998,8 +1998,8 @@ long _do_fork(unsigned long clone_flags,
 #ifndef CONFIG_HAVE_COPY_THREAD_TLS
 /* For compatibility with architectures that call do_fork directly rather than
  * using the syscall entry points below. */
-long do_fork(unsigned long clone_flags,
-	      unsigned long stack_start,
+long do_fork(unsigned long clone_flags,  //克隆标志，最低字节指定进程退出时是否发给父进程信号
+	      unsigned long stack_start,  //只有在创建
 	      unsigned long stack_size,
 	      int __user *parent_tidptr,
 	      int __user *child_tidptr)

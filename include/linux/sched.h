@@ -1490,8 +1490,8 @@ struct task_struct {
 	 */
 	struct thread_info thread_info;
 #endif
-	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
-	void *stack;
+	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */  //进程状态
+	void *stack;  //指向内核栈
 	atomic_t usage;
 	unsigned int flags;	/* per process flags, defined below */
 	unsigned int ptrace;
@@ -1510,7 +1510,7 @@ struct task_struct {
 #endif
 	int on_rq;
 
-	int prio, static_prio, normal_prio;
+	int prio, static_prio, normal_prio;  //调度策略和优先级
 	unsigned int rt_priority;
 	const struct sched_class *sched_class;
 	struct sched_entity se;
@@ -1531,7 +1531,7 @@ struct task_struct {
 
 	unsigned int policy;
 	int nr_cpus_allowed;
-	cpumask_t cpus_allowed;
+	cpumask_t cpus_allowed;  //允许进程在哪些处理器上运行
 
 #ifdef CONFIG_PREEMPT_RCU
 	int rcu_read_lock_nesting;
@@ -1556,8 +1556,8 @@ struct task_struct {
 	struct rb_node pushable_dl_tasks;
 #endif
 
-	struct mm_struct *mm, *active_mm;
-	/* per-thread vma caching */
+	struct mm_struct *mm, *active_mm;  //指向内存描述符，进程：mm和action_mm指向同一个内存描述符，
+	/* per-thread vma caching */     //内核：mm是空指针，当内核线程运行时，action_mm指向从进程借用的内存描述符
 	u32 vmacache_seqnum;
 	struct vm_area_struct *vmacache[VMACACHE_SIZE];
 #if defined(SPLIT_RSS_COUNTING)
@@ -1603,8 +1603,8 @@ struct task_struct {
 
 	struct restart_block restart_block;
 
-	pid_t pid;
-	pid_t tgid;
+	pid_t pid;  //全局进程号
+	pid_t tgid;  //全局的线程组标识符
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 	/* Canary value for the -fstack-protector gcc feature */
@@ -1615,14 +1615,14 @@ struct task_struct {
 	 * older sibling, respectively.  (p->father can be replaced with
 	 * p->real_parent->pid)
 	 */
-	struct task_struct __rcu *real_parent; /* real parent process */
-	struct task_struct __rcu *parent; /* recipient of SIGCHLD, wait4() reports */
+	struct task_struct __rcu *real_parent; /* real parent process */  //指向真实的父进程
+	struct task_struct __rcu *parent; /* recipient of SIGCHLD, wait4() reports */  //指向父进程，如果使用ptrace，指向跟踪进程，否则和real_parent相同
 	/*
 	 * children/sibling forms the list of my natural children
 	 */
 	struct list_head children;	/* list of my children */
 	struct list_head sibling;	/* linkage in my parent's children list */
-	struct task_struct *group_leader;	/* threadgroup leader */
+	struct task_struct *group_leader;	/* threadgroup leader */  //指向线程组组长
 
 	/*
 	 * ptraced is the list of tasks this task is using ptrace on.
@@ -1633,7 +1633,7 @@ struct task_struct {
 	struct list_head ptrace_entry;
 
 	/* PID/PID hash table linkage. */
-	struct pid_link pids[PIDTYPE_MAX];
+	struct pid_link pids[PIDTYPE_MAX];  //进程号，进程组标识符和会话标识符
 	struct list_head thread_group;
 	struct list_head thread_node;
 
@@ -1670,12 +1670,12 @@ struct task_struct {
 	struct list_head cpu_timers[3];
 
 /* process credentials */
-	const struct cred __rcu *ptracer_cred; /* Tracer's credentials at attach */
-	const struct cred __rcu *real_cred; /* objective and real subjective task
+	const struct cred __rcu *ptracer_cred; /* Tracer's credentials at attach */  
+	const struct cred __rcu *real_cred; /* objective and real subjective task   //指向主体和真实客体证书
 					 * credentials (COW) */
-	const struct cred __rcu *cred;	/* effective (overridable) subjective task
+	const struct cred __rcu *cred;	/* effective (overridable) subjective task  //指向有效客体证书，可以被临时改变
 					 * credentials (COW) */
-	char comm[TASK_COMM_LEN]; /* executable name excluding path
+	char comm[TASK_COMM_LEN]; /* executable name excluding path     //进程名称
 				     - access with [gs]et_task_comm (which lock
 				       it with task_lock())
 				     - initialized normally by setup_new_exec */
@@ -1691,11 +1691,11 @@ struct task_struct {
 	unsigned long last_switch_count;
 #endif
 /* filesystem information */
-	struct fs_struct *fs;
+	struct fs_struct *fs;    //文件系统信息，主要是进程的根目录和当前工作目录
 /* open file information */
-	struct files_struct *files;
+	struct files_struct *files;  //打开文件表
 /* namespaces */
-	struct nsproxy *nsproxy;
+	struct nsproxy *nsproxy;    //命名空间
 /* signal handlers */
 	struct signal_struct *signal;
 	struct sighand_struct *sighand;
