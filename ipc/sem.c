@@ -2057,17 +2057,17 @@ SYSCALL_DEFINE3(semop, int, semid, struct sembuf __user *, tsops,
 /* If CLONE_SYSVSEM is set, establish sharing of SEM_UNDO state between
  * parent and child tasks.
  */
-
+  
 int copy_semundo(unsigned long clone_flags, struct task_struct *tsk)
 {
 	struct sem_undo_list *undo_list;
 	int error;
 
-	if (clone_flags & CLONE_SYSVSEM) {
+	if (clone_flags & CLONE_SYSVSEM) {  //如果调用者传入标志CLONE_SYSVSEM，表示共享UNIX系统5信号量
 		error = get_undo_list(&undo_list);
 		if (error)
 			return error;
-		atomic_inc(&undo_list->refcnt);
+		atomic_inc(&undo_list->refcnt);  //共享计数+1
 		tsk->sysvsem.undo_list = undo_list;
 	} else
 		tsk->sysvsem.undo_list = NULL;

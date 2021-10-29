@@ -2372,7 +2372,7 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 	unsigned long flags;
 	int cpu = get_cpu();
 
-	__sched_fork(clone_flags, p);
+	__sched_fork(clone_flags, p);  //execute base setting  
 	/*
 	 * We mark the process as NEW here. This guarantees that
 	 * nobody will actually run it, and a signal or other external
@@ -2382,8 +2382,8 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 
 	/*
 	 * Make sure we do not leak PI boosting priority to the child.
-	 */
-	p->prio = current->normal_prio;
+	 */  //把新进程的调度优先级设置为当前进程的正常优先级，为什么不设成当前优先级呢，因为当前进程
+	p->prio = current->normal_prio;  //可能因为占有实时互斥锁而被临时提升了优先级
 
 	/*
 	 * Revert to default priority/policy on fork if requested.
@@ -2391,7 +2391,7 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 	if (unlikely(p->sched_reset_on_fork)) {
 		if (task_has_dl_policy(p) || task_has_rt_policy(p)) {
 			p->policy = SCHED_NORMAL;
-			p->static_prio = NICE_TO_PRIO(0);
+			p->static_prio = NICE_TO_PRIO(0);  //nice值设置成默认值0，对应静态优先级120
 			p->rt_priority = 0;
 		} else if (PRIO_TO_NICE(p->static_prio) < 0)
 			p->static_prio = NICE_TO_PRIO(0);
@@ -2406,12 +2406,12 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 		p->sched_reset_on_fork = 0;
 	}
 
-	if (dl_prio(p->prio)) {
+	if (dl_prio(p->prio)) {  //根据新进程的优先级设置调度类
 		put_cpu();
-		return -EAGAIN;
-	} else if (rt_prio(p->prio)) {
+		return -EAGAIN;  //如果调度优先级是限期调度类的优先级，那么返回错误，因为不允许限期进程分叉新的限期进程
+	} else if (rt_prio(p->prio)) {  //如果调度优先级是实时调度的优先级，把调度类设置成实时调度类
 		p->sched_class = &rt_sched_class;
-	} else {
+	} else {   //如果调度优先级是公平调度的优先级，把调度类设置成公平调度类
 		p->sched_class = &fair_sched_class;
 	}
 
@@ -2429,8 +2429,8 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 	 * We're setting the cpu for the first time, we don't migrate,
 	 * so use __set_task_cpu().
 	 */
-	__set_task_cpu(p, cpu);
-	if (p->sched_class->task_fork)
+	__set_task_cpu(p, cpu);  //设置新进程在哪个处理器上
+	if (p->sched_class->task_fork)   //执行调度类的task_fork的方法
 		p->sched_class->task_fork(p);
 	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
 
@@ -2441,7 +2441,7 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 #if defined(CONFIG_SMP)
 	p->on_cpu = 0;
 #endif
-	init_task_preempt_count(p);
+	init_task_preempt_count(p);  //初始化新进程的抢占计数器，在抢占式内核设置2，在非抢占式内核设置0
 #ifdef CONFIG_SMP
 	plist_node_init(&p->pushable_tasks, MAX_PRIO);
 	RB_CLEAR_NODE(&p->pushable_dl_tasks);

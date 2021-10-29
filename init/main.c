@@ -487,6 +487,8 @@ asmlinkage __visible void __init start_kernel(void)
 	smp_setup_processor_id();
 	debug_objects_early_init();  do_fork  task_struct  schedule(void)  nsproxy
 
+	thread_info
+
 	/*
 	 * Set up the the initial canary ASAP:尽快设置好初始熵
 	 */

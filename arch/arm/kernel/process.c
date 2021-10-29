@@ -243,19 +243,19 @@ copy_thread(unsigned long clone_flags, unsigned long stack_start,
 	thread->cpu_domain = get_domain();
 #endif
 
-	if (likely(!(p->flags & PF_KTHREAD))) {
-		*childregs = *current_pt_regs();
-		childregs->ARM_r0 = 0;
+	if (likely(!(p->flags & PF_KTHREAD))) {  //用户进程-----------------
+		*childregs = *current_pt_regs();  //子进程把当前进程内核栈底部的pt_regs结构体复制一份
+		childregs->ARM_r0 = 0;  //把子进程的R0 设置为0，因为子进程的返回值为0.
 		if (stack_start)
-			childregs->ARM_sp = stack_start;
-	} else {
-		memset(childregs, 0, sizeof(struct pt_regs));
-		thread->cpu_context.r4 = stk_sz;
-		thread->cpu_context.r5 = stack_start;
+			childregs->ARM_sp = stack_start;  //设置栈的起始位置
+	} else {  //内核线程-------   
+		memset(childregs, 0, sizeof(struct pt_regs));  //把子进程内核栈底部清零，
+		thread->cpu_context.r4 = stk_sz;   //线程函数的地址
+		thread->cpu_context.r5 = stack_start; //传给线程函数的参数
 		childregs->ARM_cpsr = SVC_MODE;
 	}
-	thread->cpu_context.pc = (unsigned long)ret_from_fork;
-	thread->cpu_context.sp = (unsigned long)childregs;
+	thread->cpu_context.pc = (unsigned long)ret_from_fork;  //把子进程计数器设置函数ret_from_fork，当子进程被调度时，从此函数开始执行
+	thread->cpu_context.sp = (unsigned long)childregs;   //把子进程栈指针寄存器设置为内核底部pt_regs结构体的起始位置   
 
 	clear_ptrace_hw_breakpoint(p);
 
