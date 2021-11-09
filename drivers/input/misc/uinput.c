@@ -316,7 +316,7 @@ static int uinput_open(struct inode *inode, struct file *file)
 {
 	struct uinput_device *newdev;
 
-	newdev = kzalloc(sizeof(struct uinput_device), GFP_KERNEL);
+	newdev = kzalloc(sizeof(struct uinput_device), GFP_KERNEL); //为uinput_device 分配空间，这时input_dev  还只是一个指针，在IOctrl 函数中会分配
 	if (!newdev)
 		return -ENOMEM;
 
@@ -800,7 +800,7 @@ static long uinput_ioctl_handler(struct file *file, unsigned int cmd,
 	if (retval)
 		return retval;
 
-	if (!udev->dev) {
+	if (!udev->dev) {  //  如果  input_dev  设备没有存在 就分配 设备
 		retval = uinput_allocate_device(udev);
 		if (retval)
 			goto out;

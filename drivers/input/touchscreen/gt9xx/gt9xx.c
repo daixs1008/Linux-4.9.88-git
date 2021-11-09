@@ -495,14 +495,14 @@ static void gtp_mt_slot_report(struct goodix_ts_data *ts, u8 touch_num,
 			input_mt_slot(ts->input_dev, points->id);
 
 			if (points->tool_type == GTP_TOOL_PEN) {
-				input_mt_report_slot_state(ts->input_dev,
+				input_mt_report_slot_state(ts->input_dev,   //********
 							   MT_TOOL_PEN, true);
 				pre_pen_id = points->id;
 			} else {
 				input_mt_report_slot_state(ts->input_dev,
 							   MT_TOOL_FINGER, true);
 			}
-			input_report_abs(ts->input_dev, ABS_MT_POSITION_X,
+			input_report_abs(ts->input_dev, ABS_MT_POSITION_X,  //*********
 					 points->x);
 			input_report_abs(ts->input_dev, ABS_MT_POSITION_Y,
 					 points->y);
@@ -516,7 +516,7 @@ static void gtp_mt_slot_report(struct goodix_ts_data *ts, u8 touch_num,
 		} else if (pre_touch & 0x01 << i) {
 			input_mt_slot(ts->input_dev, i);
 			if (pre_pen_id == i) {
-				input_mt_report_slot_state(ts->input_dev,
+				input_mt_report_slot_state(ts->input_dev,   //**************
 							   MT_TOOL_PEN, false);
 				/* valid id will < 10, so set id to 0xff to
 				 * indicate a invalid state
@@ -532,7 +532,7 @@ static void gtp_mt_slot_report(struct goodix_ts_data *ts, u8 touch_num,
 	pre_touch = cur_touch;
 	/* report BTN_TOUCH event */
 	input_mt_sync_frame(ts->input_dev);
-	input_sync(ts->input_dev);
+	input_sync(ts->input_dev);  //同步数据*******
 }
 
 /*******************************************************
@@ -542,6 +542,20 @@ static void gtp_mt_slot_report(struct goodix_ts_data *ts, u8 touch_num,
  *	ts: goodix tp private data
  * Output:
  *	None.
+ 
+
+函数调用过程
+ gtp_irq_handler
+	 gtp_work_func(ts);
+		 point_state = gtp_get_points(ts, points, &key_value);
+			 gtp_i2c_read
+				 i2c_transfer
+				 
+		 gtp_mt_slot_report(ts, point_state & 0x0f, points);
+			 input_mt_slot
+			 input_mt_report_slot_state
+			 input_report_abs
+			 
  *********************************************************/
 static void gtp_work_func(struct goodix_ts_data *ts)
 {
@@ -566,7 +580,7 @@ static void gtp_work_func(struct goodix_ts_data *ts)
 		return;
 	}
 
-	point_state = gtp_get_points(ts, points, &key_value);
+	point_state = gtp_get_points(ts, points, &key_value);  //获取数据
 	if (!point_state) {
 		dev_dbg(&ts->client->dev, "Invalid finger points\n");
 		return;
@@ -575,7 +589,7 @@ static void gtp_work_func(struct goodix_ts_data *ts)
 	/* touch key event */
 	if (key_value & 0xf0 || pre_key & 0xf0) {
 		/* pen button */
-		switch (key_value) {
+		switch (key_value) {  //根据获取的按键数据 ，上报事件
 		case 0x40:
 			input_report_key(ts->input_dev, GTP_PEN_BUTTON1, 1);
 			input_report_key(ts->input_dev, GTP_PEN_BUTTON2, 1);
@@ -595,22 +609,22 @@ static void gtp_work_func(struct goodix_ts_data *ts)
 			dev_dbg(&ts->client->dev, "button1 up\n");
 			break;
 		}
-		input_sync(ts->input_dev);
+		input_sync(ts->input_dev);  //同步事件
 		pre_key = key_value;
 	} else if (key_value & 0x0f || pre_key & 0x0f) {
 		/* panel key */
-		for (i = 0; i < ts->pdata->key_nums; i++) {
+		for (i = 0; i < ts->pdata->key_nums; i++) {  //根据获取的按键数据 ，上报事件
 			if ((pre_key | key_value) & (0x01 << i))
 				input_report_key(ts->input_dev,
 						 ts->pdata->key_map[i],
 						 key_value & (0x01 << i));
 		}
-		input_sync(ts->input_dev);
+		input_sync(ts->input_dev);  //同步事件
 		pre_key = key_value;
 	}
 
 	if (!ts->pdata->type_a_report)
-		gtp_mt_slot_report(ts, point_state & 0x0f, points);
+		gtp_mt_slot_report(ts, point_state & 0x0f, points);  //上报 X Y 坐标 数据
 	else
 		gtp_type_a_report(ts, point_state & 0x0f, points);
 }
@@ -1524,7 +1538,7 @@ static int gtp_request_irq(struct goodix_ts_data *ts)
 
 		dev_info(&ts->client->dev, "INT num %d, trigger type:%d\n",
 			 ts->client->irq, ts->pdata->irq_flags);
-		ret = request_threaded_irq(ts->client->irq, NULL,
+		ret = request_threaded_irq(ts->client->irq, NULL,   //使用线程化的函数申请中断
 				gtp_irq_handler,
 				ts->pdata->irq_flags | IRQF_ONESHOT,
 				ts->client->name,
@@ -1552,7 +1566,7 @@ static s8 gtp_request_input_dev(struct goodix_ts_data *ts)
 	s8 ret = -1;
 	u8 index = 0;
 
-	ts->input_dev = input_allocate_device();
+	ts->input_dev = input_allocate_device();  //分配一个 input_dev 结构体
 	if (!ts->input_dev) {
 		dev_err(&ts->client->dev, "Failed to allocate input device\n");
 		return -ENOMEM;
@@ -1608,7 +1622,7 @@ static s8 gtp_request_input_dev(struct goodix_ts_data *ts)
 	ts->input_dev->id.product = 0xBEEF;
 	ts->input_dev->id.version = 10427;
 
-	ret = input_register_device(ts->input_dev);
+	ret = input_register_device(ts->input_dev);  //注册 一个 input_dev 设备
 	if (ret) {
 		dev_err(&ts->client->dev, "Register %s input device failed\n",
 			ts->input_dev->name);
@@ -2051,7 +2065,7 @@ static int gtp_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	}
 #endif
 
-	ret = gtp_request_input_dev(ts);
+	ret = gtp_request_input_dev(ts);  //注册一个 input 设备
 	if (ret < 0) {
 		dev_err(&client->dev, "Failed request input device\n");
 		goto exit_free_io_port;
@@ -2059,7 +2073,7 @@ static int gtp_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	mutex_init(&ts->lock);
 
-	ret = gtp_request_irq(ts);
+	ret = gtp_request_irq(ts);  //中断设置
 	if (ret < 0) {
 		dev_err(&client->dev, "Failed create work thread");
 		goto exit_unreg_input_dev;
@@ -2563,7 +2577,7 @@ static int __init gtp_init(void)
 	s32 ret;
 
 	pr_info("Gt9xx driver installing..\n");
-	ret = i2c_add_driver(&goodix_ts_driver);
+	ret = i2c_add_driver(&goodix_ts_driver);  //注册一个 I2C 驱动
 
 	return ret;
 }

@@ -355,27 +355,27 @@ static struct attribute_group gpio_keys_attr_group = {
 	.attrs = gpio_keys_attrs,
 };
 
-static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
+static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)  //可以准确得到 按键是按下还是松开
 {
 	const struct gpio_keys_button *button = bdata->button;
 	struct input_dev *input = bdata->input;
 	unsigned int type = button->type ?: EV_KEY;
 	int state;
 
-	state = gpiod_get_value_cansleep(bdata->gpiod);
+	state = gpiod_get_value_cansleep(bdata->gpiod);  //得到按键引脚的电平
 	if (state < 0) {
 		dev_err(input->dev.parent,
 			"failed to get gpio state: %d\n", state);
 		return;
 	}
 
-	if (type == EV_ABS) {
+	if (type == EV_ABS) {  //根据引脚电平上报事件数据
 		if (state)
 			input_event(input, type, button->code, button->value);
 	} else {
 		input_event(input, type, button->code, state);
 	}
-	input_sync(input);
+	input_sync(input);  //上报同步
 }
 
 static void gpio_keys_gpio_work_func(struct work_struct *work)
@@ -398,7 +398,7 @@ static irqreturn_t gpio_keys_gpio_isr(int irq, void *dev_id)
 	if (bdata->button->wakeup)
 		pm_stay_awake(bdata->input->dev.parent);
 
-	mod_delayed_work(system_wq,
+	mod_delayed_work(system_wq,  //注册一个推迟后的工作队列，可能会把把多次中断汇聚一次处理，等待若干毫秒在处理按键，处理按键的抖动
 			 &bdata->work,
 			 msecs_to_jiffies(bdata->software_debounce));
 
@@ -431,14 +431,14 @@ static irqreturn_t gpio_keys_irq_isr(int irq, void *dev_id)
 
 	spin_lock_irqsave(&bdata->lock, flags);
 
-	if (!bdata->key_pressed) {
+	if (!bdata->key_pressed) {  //如果按键按下 上报事件
 		if (bdata->button->wakeup)
 			pm_wakeup_event(bdata->input->dev.parent, 0);
 
 		input_event(input, EV_KEY, button->code, 1);
 		input_sync(input);
 
-		if (!bdata->release_delay) {
+		if (!bdata->release_delay) {  //如果没有定义推迟 上报按键松开 就立即上报按键松开
 			input_event(input, EV_KEY, button->code, 0);
 			input_sync(input);
 			goto out;
@@ -447,7 +447,7 @@ static irqreturn_t gpio_keys_irq_isr(int irq, void *dev_id)
 		bdata->key_pressed = true;
 	}
 
-	if (bdata->release_delay)
+	if (bdata->release_delay)  //如果定义了推迟按键松开，就修改定时器，等定时器结束在上报按键松开
 		mod_timer(&bdata->release_timer,
 			jiffies + msecs_to_jiffies(bdata->release_delay));
 out:
@@ -485,7 +485,7 @@ static int gpio_keys_setup_key(struct platform_device *pdev,
 	 * Legacy GPIO number, so request the GPIO here and
 	 * convert it to descriptor.
 	 */
-	if (gpio_is_valid(button->gpio)) {
+	if (gpio_is_valid(button->gpio)) {  //设备树 使用 gpio 的方式 定义 中断
 		unsigned flags = GPIOF_IN;
 
 		if (button->active_low)
@@ -499,7 +499,7 @@ static int gpio_keys_setup_key(struct platform_device *pdev,
 			return error;
 		}
 
-		bdata->gpiod = gpio_to_desc(button->gpio);
+		bdata->gpiod = gpio_to_desc(button->gpio);  //获取 gpio 的描述符
 		if (!bdata->gpiod)
 			return -EINVAL;
 
@@ -515,7 +515,7 @@ static int gpio_keys_setup_key(struct platform_device *pdev,
 		if (button->irq) {
 			bdata->irq = button->irq;
 		} else {
-			irq = gpiod_to_irq(bdata->gpiod);
+			irq = gpiod_to_irq(bdata->gpiod);  // 使用  gpiod   转换成中断号
 			if (irq < 0) {
 				error = irq;
 				dev_err(dev,
@@ -526,32 +526,32 @@ static int gpio_keys_setup_key(struct platform_device *pdev,
 			bdata->irq = irq;
 		}
 
-		INIT_DELAYED_WORK(&bdata->work, gpio_keys_gpio_work_func);
+		INIT_DELAYED_WORK(&bdata->work, gpio_keys_gpio_work_func); //初始化 work 工作队列
 
-		isr = gpio_keys_gpio_isr;
+		isr = gpio_keys_gpio_isr;  //中断处理函数
 		irqflags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;
 
-	} else {
+	} else { //如果设备树使用中断方式定义 中断 
 		if (!button->irq) {
 			dev_err(dev, "No IRQ specified\n");
 			return -EINVAL;
 		}
-		bdata->irq = button->irq;
+		bdata->irq = button->irq;  //如果设备树使用中断方式定义 中断 
 
 		if (button->type && button->type != EV_KEY) {
 			dev_err(dev, "Only EV_KEY allowed for IRQ buttons.\n");
 			return -EINVAL;
 		}
 
-		bdata->release_delay = button->debounce_interval;
+		bdata->release_delay = button->debounce_interval;  //同时上报按键按下和松开，如果设置了定时器 就会定时器结束在上报按键松开
 		setup_timer(&bdata->release_timer,
 			    gpio_keys_irq_timer, (unsigned long)bdata);
 
-		isr = gpio_keys_irq_isr;
+		isr = gpio_keys_irq_isr;  //设置中断处理函数
 		irqflags = 0;
 	}
 
-	input_set_capability(input, button->type ?: EV_KEY, button->code);
+	input_set_capability(input, button->type ?: EV_KEY, button->code);  //设置按键能产生 哪一类按键
 
 	/*
 	 * Install custom action to cancel release timer and
@@ -572,7 +572,7 @@ static int gpio_keys_setup_key(struct platform_device *pdev,
 	if (!button->can_disable)
 		irqflags |= IRQF_SHARED;
 
-	error = devm_request_any_context_irq(&pdev->dev, bdata->irq,
+	error = devm_request_any_context_irq(&pdev->dev, bdata->irq,  //注册中断
 					     isr, irqflags, desc, bdata);
 	if (error < 0) {
 		dev_err(dev, "Unable to claim irq %d; error %d\n",
@@ -645,11 +645,11 @@ gpio_keys_get_devtree_pdata(struct device *dev)
 	if (!node)
 		return ERR_PTR(-ENODEV);
 
-	nbuttons = of_get_available_child_count(node);
+	nbuttons = of_get_available_child_count(node);  //分析有几个子节点，每一个子节点对应一个按键
 	if (nbuttons == 0)
 		return ERR_PTR(-ENODEV);
 
-	pdata = devm_kzalloc(dev,
+	pdata = devm_kzalloc(dev,                     //为节点和子节点分配结构体
 			     sizeof(*pdata) + nbuttons * sizeof(*button),
 			     GFP_KERNEL);
 	if (!pdata)
@@ -658,12 +658,12 @@ gpio_keys_get_devtree_pdata(struct device *dev)
 	pdata->buttons = (struct gpio_keys_button *)(pdata + 1);
 	pdata->nbuttons = nbuttons;
 
-	pdata->rep = !!of_get_property(node, "autorepeat", NULL);
+	pdata->rep = !!of_get_property(node, "autorepeat", NULL);  //读取节点的属性  //autorepeat重复上报信息
 
 	of_property_read_string(node, "label", &pdata->name);
 
 	i = 0;
-	for_each_available_child_of_node(node, pp) {
+	for_each_available_child_of_node(node, pp) {   //循环解析每一个子节点
 		enum of_gpio_flags flags;
 
 		button = &pdata->buttons[i++];
@@ -682,20 +682,20 @@ gpio_keys_get_devtree_pdata(struct device *dev)
 			button->active_low = flags & OF_GPIO_ACTIVE_LOW;
 		}
 
-		button->irq = irq_of_parse_and_map(pp, 0);
+		button->irq = irq_of_parse_and_map(pp, 0); //获取按键中断号
 
 		if (!gpio_is_valid(button->gpio) && !button->irq) {
 			dev_err(dev, "Found button without gpios or irqs\n");
 			return ERR_PTR(-EINVAL);
 		}
 
-		if (of_property_read_u32(pp, "linux,code", &button->code)) {
+		if (of_property_read_u32(pp, "linux,code", &button->code)) {  //linux,code 获取 linux,code 属性
 			dev_err(dev, "Button without keycode: 0x%x\n",
 				button->gpio);
 			return ERR_PTR(-EINVAL);
 		}
 
-		button->desc = of_get_property(pp, "label", NULL);
+		button->desc = of_get_property(pp, "label", NULL);   // 获取 按键  "label"  属性
 
 		if (of_property_read_u32(pp, "linux,input-type", &button->type))
 			button->type = EV_KEY;
@@ -717,7 +717,7 @@ gpio_keys_get_devtree_pdata(struct device *dev)
 	return pdata;
 }
 
-static const struct of_device_id gpio_keys_of_match[] = {
+static const struct of_device_id gpio_keys_of_match[] = {  //与设备树中比对的数据   依据： "gpio-keys"
 	{ .compatible = "gpio-keys", },
 	{ },
 };
@@ -733,8 +733,9 @@ gpio_keys_get_devtree_pdata(struct device *dev)
 
 #endif
 
-static int gpio_keys_probe(struct platform_device *pdev)
-{
+static int gpio_keys_probe(struct platform_device *pdev)  //分配/设置/注册  input_dev 结构体 
+{                                                                // 有两种IRQ函数  `  1.gpio_keys_gpio_isr`：设备树中的用`gpios`来描述用到的引脚  
+																		       // 2.gpio_keys_irq_isr`：设备树中的用`interrupts`来描述用到的引脚
 	struct device *dev = &pdev->dev;
 	const struct gpio_keys_platform_data *pdata = dev_get_platdata(dev);
 	struct gpio_keys_drvdata *ddata;
@@ -744,7 +745,7 @@ static int gpio_keys_probe(struct platform_device *pdev)
 	int wakeup = 0;
 
 	if (!pdata) {
-		pdata = gpio_keys_get_devtree_pdata(dev);
+		pdata = gpio_keys_get_devtree_pdata(dev);  //从设备树中获取 gpio 的按键信息
 		if (IS_ERR(pdata))
 			return PTR_ERR(pdata);
 	}
@@ -757,7 +758,7 @@ static int gpio_keys_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	input = devm_input_allocate_device(dev);
+	input = devm_input_allocate_device(dev);  //分配一个输入设备结构体
 	if (!input) {
 		dev_err(dev, "failed to allocate input device\n");
 		return -ENOMEM;
@@ -782,14 +783,14 @@ static int gpio_keys_probe(struct platform_device *pdev)
 	input->id.version = 0x0100;
 
 	/* Enable auto repeat feature of Linux input subsystem */
-	if (pdata->rep)
+	if (pdata->rep)            //如果设置了autorepeat，就设置重复上报事件
 		__set_bit(EV_REP, input->evbit);
 
-	for (i = 0; i < pdata->nbuttons; i++) {
+	for (i = 0; i < pdata->nbuttons; i++) {   //处理每一个子节点
 		const struct gpio_keys_button *button = &pdata->buttons[i];
 		struct gpio_button_data *bdata = &ddata->data[i];
 
-		error = gpio_keys_setup_key(pdev, input, bdata, button);
+		error = gpio_keys_setup_key(pdev, input, bdata, button);  //设置每一个按键节点
 		if (error)
 			return error;
 
@@ -804,7 +805,7 @@ static int gpio_keys_probe(struct platform_device *pdev)
 		return error;
 	}
 
-	error = input_register_device(input);
+	error = input_register_device(input);  //注册 输入设备
 	if (error) {
 		dev_err(dev, "Unable to register input device, error: %d\n",
 			error);
@@ -892,13 +893,13 @@ static struct platform_driver gpio_keys_device_driver = {
 	.driver		= {
 		.name	= "gpio-keys",
 		.pm	= &gpio_keys_pm_ops,
-		.of_match_table = of_match_ptr(gpio_keys_of_match),
+		.of_match_table = of_match_ptr(gpio_keys_of_match),  //of_device_id gpio_keys_of_match[]，如果设备树中有与此数组匹配的设备就调用probe函数
 	}
 };
 
 static int __init gpio_keys_init(void)
 {
-	return platform_driver_register(&gpio_keys_device_driver);
+	return platform_driver_register(&gpio_keys_device_driver);  //注册一个平台设备
 }
 
 static void __exit gpio_keys_exit(void)
