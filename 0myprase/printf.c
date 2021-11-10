@@ -1,9 +1,9 @@
 
 
-U-Boot 2017.03 (May 11 2021 - 09:15:14 +0000)
+1.-U-Boot 2017.03 (May 11 2021 - 09:15:14 +0000)
 
-CPU:   Freescale i.MX6ULL rev1.1 696 MHz (running at 396 MHz)
-CPU:   Industrial temperature grade (-40C to 105C) at 37C
+2.-CPU:   Freescale i.MX6ULL rev1.1 696 MHz (running at 396 MHz)
+3.-CPU:   Industrial temperature grade (-40C to 105C) at 37C
 Reset cause: POR
 Model: Freescale i.MX6 ULL 14x14 EVK Board
 Board: MX6ULL 14x14 EVK
