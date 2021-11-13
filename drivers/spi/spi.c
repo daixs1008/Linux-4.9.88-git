@@ -3279,7 +3279,7 @@ err0:
 }
 
 /* board_info is normally registered in arch_initcall(),
- * but even essential drivers wait till later
+ * but even essential （基本的）drivers wait till later
  *
  * REVISIT only boardinfo really needs static linking. the rest (device and
  * driver registration) _could_ be dynamically linked (modular) ... costs

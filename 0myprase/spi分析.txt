@@ -1,0 +1,17 @@
+
+
+spi 总线注册分析
+
+static const struct of_device_id spi_imx_dt_ids[] = {
+	{ .compatible = "fsl,imx6ul-ecspi", .data = &imx6ul_ecspi_devtype_data, },
+	{ /* sentinel */ }
+};
+根据设备树中spi 节点有此 compatible 注册spi 总线
+
+module_platform_driver(spi_imx_driver); //根据数组 spi_imx_driver 和 设备树匹配的情况注册 spi 总线
+
+	.probe = spi_imx_probe,
+	
+	static int spi_imx_probe(struct platform_device *pdev)
+		struct device_node *np = pdev->dev.of_node;  根据平台设备的节点获取当前设备的节点
+

@@ -300,7 +300,7 @@ static inline void spi_unregister_driver(struct spi_driver *sdrv)
  *	SPI slaves, and are numbered from zero to num_chipselects.
  *	each slave has a chipselect signal, but it's common that not
  *	every chipselect is connected to a slave.
- * @dma_alignment: SPI controller constraint on DMA buffers alignment.
+ * @dma_alignment: SPI controller constraint on DMA buffers alignment.  //constraint n. 限制，束缚；克制，拘束
  * @mode_bits: flags understood by this controller driver
  * @bits_per_word_mask: A mask indicating which values of bits_per_word are
  *	supported by the driver. Bit n indicates that a bits_per_word n+1 is
@@ -316,7 +316,7 @@ static inline void spi_unregister_driver(struct spi_driver *sdrv)
  *	a &spi_device; may be %NULL, so the default %SIZE_MAX will be used.
  * @io_mutex: mutex for physical bus access
  * @bus_lock_spinlock: spinlock for SPI bus locking
- * @bus_lock_mutex: mutex for exclusion of multiple callers
+ * @bus_lock_mutex: mutex for exclusion of multiple callers   //exclusion n. 排斥，排除在外；被排除在外的人（或事物）；认为不可能；（合约中的）除外事项；<英>开除学籍
  * @bus_lock_flag: indicates that the SPI bus is locked for exclusive use
  * @setup: updates the device mode and clocking records used by a
  *	device's SPI controller; protocol code may call this.  This
@@ -367,7 +367,7 @@ static inline void spi_unregister_driver(struct spi_driver *sdrv)
  *                    the driver is finished with this transfer it must
  *                    call spi_finalize_current_transfer() so the subsystem
  *                    can issue the next transfer. Note: transfer_one and
- *                    transfer_one_message are mutually exclusive; when both
+ *                    transfer_one_message are mutually exclusive(排斥); when both
  *                    are set, the generic subsystem does not call your
  *                    transfer_one callback.
  * @handle_err: the subsystem calls the driver to handle an error that occurs
@@ -400,9 +400,9 @@ static inline void spi_unregister_driver(struct spi_driver *sdrv)
  * message's completion function when the transaction completes.
  */
 struct spi_master {
-	struct device	dev;
+	struct device	dev;  //驱动的设备接口
 
-	struct list_head list;
+	struct list_head list;  //链接全局spi_master(spi控制器)的链表
 
 	/* other than negative (== assign one dynamically), bus_num is fully
 	 * board-specific.  usually that simplifies to being SOC-specific.
@@ -410,7 +410,7 @@ struct spi_master {
 	 * and one board's schematics might show it using SPI-2.  software
 	 * would normally use bus_num=2 for that controller.
 	 */
-	s16			bus_num;
+	s16			bus_num;  //控制总线号--即第几条总线
 
 	/* chipselects will be integral to many controllers; some others
 	 * might use board-specific GPIOs.

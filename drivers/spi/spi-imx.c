@@ -1,1390 +1,1464 @@
 /*
- * Copyright 2004-2007 Freescale Semiconductor, Inc. All Rights Reserved.
- * Copyright (C) 2008 Juergen Beisert
+ * device.h - generic, centralized driver model
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Copyright (c) 2001-2003 Patrick Mochel <mochel@osdl.org>
+ * Copyright (c) 2004-2009 Greg Kroah-Hartman <gregkh@suse.de>
+ * Copyright (c) 2008-2009 Novell Inc.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the
- * Free Software Foundation
- * 51 Franklin Street, Fifth Floor
- * Boston, MA  02110-1301, USA.
+ * This file is released under the GPLv2
+ *
+ * See Documentation/driver-model/ for more information.
  */
 
-#include <linux/clk.h>
-#include <linux/completion.h>
-#include <linux/delay.h>
-#include <linux/dmaengine.h>
-#include <linux/dma-mapping.h>
-#include <linux/err.h>
-#include <linux/gpio.h>
-#include <linux/interrupt.h>
-#include <linux/io.h>
-#include <linux/irq.h>
-#include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/platform_device.h>
-#include <linux/slab.h>
-#include <linux/spi/spi.h>
-#include <linux/spi/spi_bitbang.h>
+#ifndef _DEVICE_H_
+#define _DEVICE_H_
+
+#include <linux/ioport.h>
+#include <linux/kobject.h>
+#include <linux/klist.h>
+#include <linux/list.h>
+#include <linux/lockdep.h>
+#include <linux/compiler.h>
 #include <linux/types.h>
-#include <linux/of.h>
-#include <linux/of_device.h>
-#include <linux/of_gpio.h>
+#include <linux/mutex.h>
+#include <linux/pinctrl/devinfo.h>
+#include <linux/pm.h>
+#include <linux/atomic.h>
+#include <linux/ratelimit.h>
+#include <linux/uidgid.h>
+#include <linux/gfp.h>
+#include <asm/device.h>
 
-#include <linux/platform_data/dma-imx.h>
-#include <linux/platform_data/spi-imx.h>
+struct device;
+struct device_private;
+struct device_driver;
+struct driver_private;
+struct module;
+struct class;
+struct subsys_private;
+struct bus_type;
+struct device_node;
+struct fwnode_handle;
+struct iommu_ops;
+struct iommu_group;
+struct iommu_fwspec;
 
-#define DRIVER_NAME "spi_imx"
-
-#define MXC_CSPIRXDATA		0x00
-#define MXC_CSPITXDATA		0x04
-#define MXC_CSPICTRL		0x08
-#define MXC_CSPIINT		0x0c
-#define MXC_RESET		0x1c
-
-/* generic defines to abstract from the different register layouts */
-#define MXC_INT_RR	(1 << 0) /* Receive data ready interrupt */
-#define MXC_INT_TE	(1 << 1) /* Transmit FIFO empty interrupt */
-
-/* The maximum  bytes that a sdma BD can transfer.*/
-#define MAX_SDMA_BD_BYTES  (1 << 15)
-struct spi_imx_config {
-	unsigned int speed_hz;
-	unsigned int bpw;
+struct bus_attribute {
+	struct attribute	attr;
+	ssize_t (*show)(struct bus_type *bus, char *buf);
+	ssize_t (*store)(struct bus_type *bus, const char *buf, size_t count);
 };
 
-enum spi_imx_devtype {
-	IMX1_CSPI,
-	IMX21_CSPI,
-	IMX27_CSPI,
-	IMX31_CSPI,
-	IMX35_CSPI,	/* CSPI on all i.mx except above */
-	IMX51_ECSPI,	/* ECSPI on i.mx51 and later */
-	IMX6UL_ECSPI,
-};
+#define BUS_ATTR(_name, _mode, _show, _store)	\
+	struct bus_attribute bus_attr_##_name = __ATTR(_name, _mode, _show, _store)
+#define BUS_ATTR_RW(_name) \
+	struct bus_attribute bus_attr_##_name = __ATTR_RW(_name)
+#define BUS_ATTR_RO(_name) \
+	struct bus_attribute bus_attr_##_name = __ATTR_RO(_name)
 
-struct spi_imx_data;
+extern int __must_check bus_create_file(struct bus_type *,
+					struct bus_attribute *);
+extern void bus_remove_file(struct bus_type *, struct bus_attribute *);
 
-struct spi_imx_devtype_data {
-	void (*intctrl)(struct spi_imx_data *, int);
-	int (*config)(struct spi_device *, struct spi_imx_config *);
-	void (*trigger)(struct spi_imx_data *);
-	int (*rx_available)(struct spi_imx_data *);
-	void (*reset)(struct spi_imx_data *);
-	enum spi_imx_devtype devtype;
-};
-
-struct spi_imx_data {
-	struct spi_bitbang bitbang;
-	struct device *dev;
-
-	struct completion xfer_done;
-	void __iomem *base;
-	unsigned long base_phys;
-
-	struct clk *clk_per;
-	struct clk *clk_ipg;
-	unsigned long spi_clk;
-	unsigned int spi_bus_clk;
-
-	unsigned int bytes_per_word;
-
-	unsigned int count;
-	void (*tx)(struct spi_imx_data *);
-	void (*rx)(struct spi_imx_data *);
-	void *rx_buf;
-	const void *tx_buf;
-	unsigned int txfifo; /* number of words pushed in tx FIFO */
-
-	/* DMA */
-	bool usedma;
-	u32 wml;
-	struct completion dma_rx_completion;
-	struct completion dma_tx_completion;
-
-	const struct spi_imx_devtype_data *devtype_data;
-};
-
-static inline int is_imx27_cspi(struct spi_imx_data *d)
-{
-	return d->devtype_data->devtype == IMX27_CSPI;
-}
-
-static inline int is_imx35_cspi(struct spi_imx_data *d)
-{
-	return d->devtype_data->devtype == IMX35_CSPI;
-}
-
-static inline int is_imx51_ecspi(struct spi_imx_data *d)
-{
-	return d->devtype_data->devtype == IMX51_ECSPI ||
-	       d->devtype_data->devtype == IMX6UL_ECSPI;
-}
-
-static inline unsigned spi_imx_get_fifosize(struct spi_imx_data *d)
-{
-	return is_imx51_ecspi(d) ? 64 : 8;
-}
-
-#define MXC_SPI_BUF_RX(type)						\
-static void spi_imx_buf_rx_##type(struct spi_imx_data *spi_imx)		\
-{									\
-	unsigned int val = readl(spi_imx->base + MXC_CSPIRXDATA);	\
-									\
-	if (spi_imx->rx_buf) {						\
-		*(type *)spi_imx->rx_buf = val;				\
-		spi_imx->rx_buf += sizeof(type);			\
-	}								\
-}
-
-#define MXC_SPI_BUF_TX(type)						\
-static void spi_imx_buf_tx_##type(struct spi_imx_data *spi_imx)		\
-{									\
-	type val = 0;							\
-									\
-	if (spi_imx->tx_buf) {						\
-		val = *(type *)spi_imx->tx_buf;				\
-		spi_imx->tx_buf += sizeof(type);			\
-	}								\
-									\
-	spi_imx->count -= sizeof(type);					\
-									\
-	writel(val, spi_imx->base + MXC_CSPITXDATA);			\
-}
-
-MXC_SPI_BUF_RX(u8)
-MXC_SPI_BUF_TX(u8)
-MXC_SPI_BUF_RX(u16)
-MXC_SPI_BUF_TX(u16)
-MXC_SPI_BUF_RX(u32)
-MXC_SPI_BUF_TX(u32)
-
-/* First entry is reserved, second entry is valid only if SDHC_SPIEN is set
- * (which is currently not the case in this driver)
+/**
+ * struct bus_type - The bus type of the device
+ *
+ * @name:	The name of the bus.
+ * @dev_name:	Used for subsystems to enumerate devices like ("foo%u", dev->id).
+ * @dev_root:	Default device to use as the parent.
+ * @dev_attrs:	Default attributes of the devices on the bus.
+ * @bus_groups:	Default attributes of the bus.
+ * @dev_groups:	Default attributes of the devices on the bus.
+ * @drv_groups: Default attributes of the device drivers on the bus.
+ * @match:	Called, perhaps multiple times, whenever a new device or driver
+ *		is added for this bus. It should return a positive value if the
+ *		given device can be handled by the given driver and zero
+ *		otherwise. It may also return error code if determining that
+ *		the driver supports the device is not possible. In case of
+ *		-EPROBE_DEFER it will queue the device for deferred probing.
+ * @uevent:	Called when a device is added, removed, or a few other things
+ *		that generate uevents to add the environment variables.
+ * @probe:	Called when a new device or driver add to this bus, and callback
+ *		the specific driver's probe to initial the matched device.
+ * @remove:	Called when a device removed from this bus.
+ * @shutdown:	Called at shut-down time to quiesce the device.
+ *
+ * @online:	Called to put the device back online (after offlining it).
+ * @offline:	Called to put the device offline for hot-removal. May fail.
+ *
+ * @suspend:	Called when a device on this bus wants to go to sleep mode.
+ * @resume:	Called to bring a device on this bus out of sleep mode.
+ * @pm:		Power management operations of this bus, callback the specific
+ *		device driver's pm-ops.
+ * @iommu_ops:  IOMMU specific operations for this bus, used to attach IOMMU
+ *              driver implementations to a bus and allow the driver to do
+ *              bus-specific setup
+ * @p:		The private data of the driver core, only the driver core can
+ *		touch this.
+ * @lock_key:	Lock class key for use by the lock validator
+ *
+ * A bus is a channel between the processor and one or more devices. For the
+ * purposes of the device model, all devices are connected via a bus, even if
+ * it is an internal, virtual, "platform" bus. Buses can plug into each other.
+ * A USB controller is usually a PCI device, for example. The device model
+ * represents the actual connections between buses and the devices they control.
+ * A bus is represented by the bus_type structure. It contains the name, the
+ * default attributes, the bus' methods, PM operations, and the driver core's
+ * private data.
  */
-static int mxc_clkdivs[] = {0, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192,
-	256, 384, 512, 768, 1024};
+struct bus_type {
+	const char		*name;
+	const char		*dev_name;
+	struct device		*dev_root;
+	struct device_attribute	*dev_attrs;	/* use dev_groups instead */
+	const struct attribute_group **bus_groups;
+	const struct attribute_group **dev_groups;
+	const struct attribute_group **drv_groups;
 
-/* MX21, MX27 */
-static unsigned int spi_imx_clkdiv_1(unsigned int fin,
-		unsigned int fspi, unsigned int max)
-{
-	int i;
+	int (*match)(struct device *dev, struct device_driver *drv);
+	int (*uevent)(struct device *dev, struct kobj_uevent_env *env);
+	int (*probe)(struct device *dev);
+	int (*remove)(struct device *dev);
+	void (*shutdown)(struct device *dev);
 
-	for (i = 2; i < max; i++)
-		if (fspi * mxc_clkdivs[i] >= fin)
-			return i;
+	int (*online)(struct device *dev);
+	int (*offline)(struct device *dev);
 
-	return max;
-}
+	int (*suspend)(struct device *dev, pm_message_t state);
+	int (*resume)(struct device *dev);
 
-/* MX1, MX31, MX35, MX51 CSPI */
-static unsigned int spi_imx_clkdiv_2(unsigned int fin,
-		unsigned int fspi, unsigned int *fres)
-{
-	int i, div = 4;
+	const struct dev_pm_ops *pm;
 
-	for (i = 0; i < 7; i++) {
-		if (fspi * div >= fin)
-			goto out;
-		div <<= 1;
-	}
+	const struct iommu_ops *iommu_ops;
 
-out:
-	*fres = fin / div;
-	return i;
-}
+	struct subsys_private *p;
+	struct lock_class_key lock_key;
+};
 
-static int spi_imx_bytes_per_word(const int bpw)
-{
-	return DIV_ROUND_UP(bpw, BITS_PER_BYTE);
-}
+extern int __must_check bus_register(struct bus_type *bus);
 
-static bool spi_imx_can_dma(struct spi_master *master, struct spi_device *spi,
-			 struct spi_transfer *transfer)
-{
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(master);
-	unsigned int bpw;
+extern void bus_unregister(struct bus_type *bus);
 
-	if (!master->dma_rx)
-		return false;
+extern int __must_check bus_rescan_devices(struct bus_type *bus);
 
-	if (!transfer)
-		return false;
+/* iterator helpers for buses */
+struct subsys_dev_iter {
+	struct klist_iter		ki;
+	const struct device_type	*type;
+};
+void subsys_dev_iter_init(struct subsys_dev_iter *iter,
+			 struct bus_type *subsys,
+			 struct device *start,
+			 const struct device_type *type);
+struct device *subsys_dev_iter_next(struct subsys_dev_iter *iter);
+void subsys_dev_iter_exit(struct subsys_dev_iter *iter);
 
-	bpw = transfer->bits_per_word;
-	if (!bpw)
-		bpw = spi->bits_per_word;
-
-	bpw = spi_imx_bytes_per_word(bpw);
-
-	if (bpw != 1 && bpw != 2 && bpw != 4)
-		return false;
-
-	if (transfer->len < spi_imx->wml * bpw)
-		return false;
-
-	if (transfer->len % (spi_imx->wml * bpw))
-		return false;
-
-	return true;
-}
-
-#define MX51_ECSPI_CTRL		0x08
-#define MX51_ECSPI_CTRL_ENABLE		(1 <<  0)
-#define MX51_ECSPI_CTRL_XCH		(1 <<  2)
-#define MX51_ECSPI_CTRL_SMC		(1 << 3)
-#define MX51_ECSPI_CTRL_MODE_MASK	(0xf << 4)
-#define MX51_ECSPI_CTRL_POSTDIV_OFFSET	8
-#define MX51_ECSPI_CTRL_PREDIV_OFFSET	12
-#define MX51_ECSPI_CTRL_CS(cs)		((cs) << 18)
-#define MX51_ECSPI_CTRL_BL_OFFSET	20
-
-#define MX51_ECSPI_CONFIG	0x0c
-#define MX51_ECSPI_CONFIG_SCLKPHA(cs)	(1 << ((cs) +  0))
-#define MX51_ECSPI_CONFIG_SCLKPOL(cs)	(1 << ((cs) +  4))
-#define MX51_ECSPI_CONFIG_SBBCTRL(cs)	(1 << ((cs) +  8))
-#define MX51_ECSPI_CONFIG_SSBPOL(cs)	(1 << ((cs) + 12))
-#define MX51_ECSPI_CONFIG_SCLKCTL(cs)	(1 << ((cs) + 20))
-
-#define MX51_ECSPI_INT		0x10
-#define MX51_ECSPI_INT_TEEN		(1 <<  0)
-#define MX51_ECSPI_INT_RREN		(1 <<  3)
-
-#define MX51_ECSPI_DMA      0x14
-#define MX51_ECSPI_DMA_TX_WML(wml)	((wml) & 0x3f)
-#define MX51_ECSPI_DMA_RX_WML(wml)	(((wml) & 0x3f) << 16)
-#define MX51_ECSPI_DMA_RXT_WML(wml)	(((wml) & 0x3f) << 24)
-
-#define MX51_ECSPI_DMA_TEDEN		(1 << 7)
-#define MX51_ECSPI_DMA_RXDEN		(1 << 23)
-#define MX51_ECSPI_DMA_RXTDEN		(1 << 31)
-
-#define MX51_ECSPI_STAT		0x18
-#define MX51_ECSPI_STAT_RR		(1 <<  3)
-
-#define MX51_ECSPI_TESTREG	0x20
-#define MX51_ECSPI_TESTREG_LBC	BIT(31)
-
-/* MX51 eCSPI */
-static unsigned int mx51_ecspi_clkdiv(struct spi_imx_data *spi_imx,
-				      unsigned int fspi, unsigned int *fres)
-{
-	/*
-	 * there are two 4-bit dividers, the pre-divider divides by
-	 * $pre, the post-divider by 2^$post
-	 */
-	unsigned int pre, post;
-	unsigned int fin = spi_imx->spi_clk;
-
-	if (unlikely(fspi > fin))
-		return 0;
-
-	post = fls(fin) - fls(fspi);
-	if (fin > fspi << post)
-		post++;
-
-	/* now we have: (fin <= fspi << post) with post being minimal */
-
-	post = max(4U, post) - 4;
-	if (unlikely(post > 0xf)) {
-		dev_err(spi_imx->dev, "cannot set clock freq: %u (base freq: %u)\n",
-				fspi, fin);
-		return 0xff;
-	}
-
-	pre = DIV_ROUND_UP(fin, fspi << post) - 1;
-
-	dev_dbg(spi_imx->dev, "%s: fin: %u, fspi: %u, post: %u, pre: %u\n",
-			__func__, fin, fspi, post, pre);
-
-	/* Resulting frequency for the SCLK line. */
-	*fres = (fin / (pre + 1)) >> post;
-
-	return (pre << MX51_ECSPI_CTRL_PREDIV_OFFSET) |
-		(post << MX51_ECSPI_CTRL_POSTDIV_OFFSET);
-}
-
-static void mx51_ecspi_intctrl(struct spi_imx_data *spi_imx, int enable)
-{
-	unsigned val = 0;
-
-	if (enable & MXC_INT_TE)
-		val |= MX51_ECSPI_INT_TEEN;
-
-	if (enable & MXC_INT_RR)
-		val |= MX51_ECSPI_INT_RREN;
-
-	writel(val, spi_imx->base + MX51_ECSPI_INT);
-}
-
-static void mx51_ecspi_trigger(struct spi_imx_data *spi_imx)
-{
-	u32 reg = readl(spi_imx->base + MX51_ECSPI_CTRL);
-	/*
-	 * To workaround ERR008517, SDMA script need use XCH instead of SMC
-	 * just like PIO mode and it fix on i.mx6ul
-	 */
-	if (!spi_imx->usedma)
-		reg |= MX51_ECSPI_CTRL_XCH;
-	else if (spi_imx->devtype_data->devtype == IMX6UL_ECSPI)
-		reg |= MX51_ECSPI_CTRL_SMC;
-	else
-		reg &= ~MX51_ECSPI_CTRL_SMC;
-	writel(reg, spi_imx->base + MX51_ECSPI_CTRL);
-}
-
-static int mx51_ecspi_config(struct spi_device *spi,
-			     struct spi_imx_config *config)
-{
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(spi->master);
-	u32 ctrl = MX51_ECSPI_CTRL_ENABLE;
-	u32 clk = config->speed_hz, delay, reg;
-	u32 cfg = readl(spi_imx->base + MX51_ECSPI_CONFIG);
-	int tx_wml = 0;
-
-	/*
-	 * The hardware seems to have a race condition when changing modes. The
-	 * current assumption is that the selection of the channel arrives
-	 * earlier in the hardware than the mode bits when they are written at
-	 * the same time.
-	 * So set master mode for all channels as we do not support slave mode.
-	 */
-	ctrl |= MX51_ECSPI_CTRL_MODE_MASK;
-
-	/* set clock speed */
-	ctrl |= mx51_ecspi_clkdiv(spi_imx, config->speed_hz, &clk);
-	spi_imx->spi_bus_clk = clk;
-
-	/* set chip select to use */
-	ctrl |= MX51_ECSPI_CTRL_CS(spi->chip_select);
-
-	ctrl |= (config->bpw - 1) << MX51_ECSPI_CTRL_BL_OFFSET;
-
-	cfg |= MX51_ECSPI_CONFIG_SBBCTRL(spi->chip_select);
-
-	if (spi->mode & SPI_CPHA)
-		cfg |= MX51_ECSPI_CONFIG_SCLKPHA(spi->chip_select);
-	else
-		cfg &= ~MX51_ECSPI_CONFIG_SCLKPHA(spi->chip_select);
-
-	if (spi->mode & SPI_CPOL) {
-		cfg |= MX51_ECSPI_CONFIG_SCLKPOL(spi->chip_select);
-		cfg |= MX51_ECSPI_CONFIG_SCLKCTL(spi->chip_select);
-	} else {
-		cfg &= ~MX51_ECSPI_CONFIG_SCLKPOL(spi->chip_select);
-		cfg &= ~MX51_ECSPI_CONFIG_SCLKCTL(spi->chip_select);
-	}
-	if (spi->mode & SPI_CS_HIGH)
-		cfg |= MX51_ECSPI_CONFIG_SSBPOL(spi->chip_select);
-	else
-		cfg &= ~MX51_ECSPI_CONFIG_SSBPOL(spi->chip_select);
-
-	if (spi_imx->usedma)
-		ctrl |= MX51_ECSPI_CTRL_SMC;
-
-	/* CTRL register always go first to bring out controller from reset */
-	writel(ctrl, spi_imx->base + MX51_ECSPI_CTRL);
-
-	reg = readl(spi_imx->base + MX51_ECSPI_TESTREG);
-	if (spi->mode & SPI_LOOP)
-		reg |= MX51_ECSPI_TESTREG_LBC;
-	else
-		reg &= ~MX51_ECSPI_TESTREG_LBC;
-	writel(reg, spi_imx->base + MX51_ECSPI_TESTREG);
-
-	writel(cfg, spi_imx->base + MX51_ECSPI_CONFIG);
-
-	/*
-	 * Wait until the changes in the configuration register CONFIGREG
-	 * propagate into the hardware. It takes exactly one tick of the
-	 * SCLK clock, but we will wait two SCLK clock just to be sure. The
-	 * effect of the delay it takes for the hardware to apply changes
-	 * is noticable if the SCLK clock run very slow. In such a case, if
-	 * the polarity of SCLK should be inverted, the GPIO ChipSelect might
-	 * be asserted before the SCLK polarity changes, which would disrupt
-	 * the SPI communication as the device on the other end would consider
-	 * the change of SCLK polarity as a clock tick already.
-	 */
-	delay = (2 * 1000000) / clk;
-	if (likely(delay < 10))	/* SCLK is faster than 100 kHz */
-		udelay(delay);
-	else			/* SCLK is _very_ slow */
-		usleep_range(delay, delay + 10);
-
-	/*
-	 * Configure the DMA register: setup the watermark
-	 * and enable DMA request.
-	 */
-	if (spi_imx->devtype_data->devtype == IMX6UL_ECSPI)
-		tx_wml = spi_imx->wml / 2;
-
-	writel(MX51_ECSPI_DMA_RX_WML(spi_imx->wml) |
-		MX51_ECSPI_DMA_TX_WML(tx_wml) |
-		MX51_ECSPI_DMA_RXT_WML(spi_imx->wml) |
-		MX51_ECSPI_DMA_TEDEN | MX51_ECSPI_DMA_RXDEN |
-		MX51_ECSPI_DMA_RXTDEN, spi_imx->base + MX51_ECSPI_DMA);
-
-	return 0;
-}
-
-static int mx51_ecspi_rx_available(struct spi_imx_data *spi_imx)
-{
-	return readl(spi_imx->base + MX51_ECSPI_STAT) & MX51_ECSPI_STAT_RR;
-}
-
-static void mx51_ecspi_reset(struct spi_imx_data *spi_imx)
-{
-	/* drain receive buffer */
-	while (mx51_ecspi_rx_available(spi_imx))
-		readl(spi_imx->base + MXC_CSPIRXDATA);
-}
-
-#define MX31_INTREG_TEEN	(1 << 0)
-#define MX31_INTREG_RREN	(1 << 3)
-
-#define MX31_CSPICTRL_ENABLE	(1 << 0)
-#define MX31_CSPICTRL_MASTER	(1 << 1)
-#define MX31_CSPICTRL_XCH	(1 << 2)
-#define MX31_CSPICTRL_POL	(1 << 4)
-#define MX31_CSPICTRL_PHA	(1 << 5)
-#define MX31_CSPICTRL_SSCTL	(1 << 6)
-#define MX31_CSPICTRL_SSPOL	(1 << 7)
-#define MX31_CSPICTRL_BC_SHIFT	8
-#define MX35_CSPICTRL_BL_SHIFT	20
-#define MX31_CSPICTRL_CS_SHIFT	24
-#define MX35_CSPICTRL_CS_SHIFT	12
-#define MX31_CSPICTRL_DR_SHIFT	16
-
-#define MX31_CSPISTATUS		0x14
-#define MX31_STATUS_RR		(1 << 3)
-
-#define MX31_CSPI_TESTREG	0x1C
-#define MX31_TEST_LBC		(1 << 14)
-
-/* These functions also work for the i.MX35, but be aware that
- * the i.MX35 has a slightly different register layout for bits
- * we do not use here.
+int bus_for_each_dev(struct bus_type *bus, struct device *start, void *data,
+		     int (*fn)(struct device *dev, void *data));
+struct device *bus_find_device(struct bus_type *bus, struct device *start,
+			       void *data,
+			       int (*match)(struct device *dev, void *data));
+struct device *bus_find_device_by_name(struct bus_type *bus,
+				       struct device *start,
+				       const char *name);
+struct device *subsys_find_device_by_id(struct bus_type *bus, unsigned int id,
+					struct device *hint);
+int bus_for_each_drv(struct bus_type *bus, struct device_driver *start,
+		     void *data, int (*fn)(struct device_driver *, void *));
+void bus_sort_breadthfirst(struct bus_type *bus,
+			   int (*compare)(const struct device *a,
+					  const struct device *b));
+/*
+ * Bus notifiers: Get notified of addition/removal of devices
+ * and binding/unbinding of drivers to devices.
+ * In the long run, it should be a replacement for the platform
+ * notify hooks.
  */
-static void mx31_intctrl(struct spi_imx_data *spi_imx, int enable)
-{
-	unsigned int val = 0;
+struct notifier_block;
 
-	if (enable & MXC_INT_TE)
-		val |= MX31_INTREG_TEEN;
-	if (enable & MXC_INT_RR)
-		val |= MX31_INTREG_RREN;
+extern int bus_register_notifier(struct bus_type *bus,
+				 struct notifier_block *nb);
+extern int bus_unregister_notifier(struct bus_type *bus,
+				   struct notifier_block *nb);
 
-	writel(val, spi_imx->base + MXC_CSPIINT);
-}
+/* All 4 notifers below get called with the target struct device *
+ * as an argument. Note that those functions are likely to be called
+ * with the device lock held in the core, so be careful.
+ */
+#define BUS_NOTIFY_ADD_DEVICE		0x00000001 /* device added */
+#define BUS_NOTIFY_DEL_DEVICE		0x00000002 /* device to be removed */
+#define BUS_NOTIFY_REMOVED_DEVICE	0x00000003 /* device removed */
+#define BUS_NOTIFY_BIND_DRIVER		0x00000004 /* driver about to be
+						      bound */
+#define BUS_NOTIFY_BOUND_DRIVER		0x00000005 /* driver bound to device */
+#define BUS_NOTIFY_UNBIND_DRIVER	0x00000006 /* driver about to be
+						      unbound */
+#define BUS_NOTIFY_UNBOUND_DRIVER	0x00000007 /* driver is unbound
+						      from the device */
+#define BUS_NOTIFY_DRIVER_NOT_BOUND	0x00000008 /* driver fails to be bound */
 
-static void mx31_trigger(struct spi_imx_data *spi_imx)
-{
-	unsigned int reg;
+extern struct kset *bus_get_kset(struct bus_type *bus);
+extern struct klist *bus_get_device_klist(struct bus_type *bus);
 
-	reg = readl(spi_imx->base + MXC_CSPICTRL);
-	reg |= MX31_CSPICTRL_XCH;
-	writel(reg, spi_imx->base + MXC_CSPICTRL);
-}
-
-static int mx31_config(struct spi_device *spi, struct spi_imx_config *config)
-{
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(spi->master);
-	unsigned int reg = MX31_CSPICTRL_ENABLE | MX31_CSPICTRL_MASTER;
-	unsigned int clk;
-
-	reg |= spi_imx_clkdiv_2(spi_imx->spi_clk, config->speed_hz, &clk) <<
-		MX31_CSPICTRL_DR_SHIFT;
-	spi_imx->spi_bus_clk = clk;
-
-	if (is_imx35_cspi(spi_imx)) {
-		reg |= (config->bpw - 1) << MX35_CSPICTRL_BL_SHIFT;
-		reg |= MX31_CSPICTRL_SSCTL;
-	} else {
-		reg |= (config->bpw - 1) << MX31_CSPICTRL_BC_SHIFT;
-	}
-
-	if (spi->mode & SPI_CPHA)
-		reg |= MX31_CSPICTRL_PHA;
-	if (spi->mode & SPI_CPOL)
-		reg |= MX31_CSPICTRL_POL;
-	if (spi->mode & SPI_CS_HIGH)
-		reg |= MX31_CSPICTRL_SSPOL;
-	if (spi->cs_gpio < 0)
-		reg |= (spi->cs_gpio + 32) <<
-			(is_imx35_cspi(spi_imx) ? MX35_CSPICTRL_CS_SHIFT :
-						  MX31_CSPICTRL_CS_SHIFT);
-
-	writel(reg, spi_imx->base + MXC_CSPICTRL);
-
-	reg = readl(spi_imx->base + MX31_CSPI_TESTREG);
-	if (spi->mode & SPI_LOOP)
-		reg |= MX31_TEST_LBC;
-	else
-		reg &= ~MX31_TEST_LBC;
-	writel(reg, spi_imx->base + MX31_CSPI_TESTREG);
-
-	return 0;
-}
-
-static int mx31_rx_available(struct spi_imx_data *spi_imx)
-{
-	return readl(spi_imx->base + MX31_CSPISTATUS) & MX31_STATUS_RR;
-}
-
-static void mx31_reset(struct spi_imx_data *spi_imx)
-{
-	/* drain receive buffer */
-	while (readl(spi_imx->base + MX31_CSPISTATUS) & MX31_STATUS_RR)
-		readl(spi_imx->base + MXC_CSPIRXDATA);
-}
-
-#define MX21_INTREG_RR		(1 << 4)
-#define MX21_INTREG_TEEN	(1 << 9)
-#define MX21_INTREG_RREN	(1 << 13)
-
-#define MX21_CSPICTRL_POL	(1 << 5)
-#define MX21_CSPICTRL_PHA	(1 << 6)
-#define MX21_CSPICTRL_SSPOL	(1 << 8)
-#define MX21_CSPICTRL_XCH	(1 << 9)
-#define MX21_CSPICTRL_ENABLE	(1 << 10)
-#define MX21_CSPICTRL_MASTER	(1 << 11)
-#define MX21_CSPICTRL_DR_SHIFT	14
-#define MX21_CSPICTRL_CS_SHIFT	19
-
-static void mx21_intctrl(struct spi_imx_data *spi_imx, int enable)
-{
-	unsigned int val = 0;
-
-	if (enable & MXC_INT_TE)
-		val |= MX21_INTREG_TEEN;
-	if (enable & MXC_INT_RR)
-		val |= MX21_INTREG_RREN;
-
-	writel(val, spi_imx->base + MXC_CSPIINT);
-}
-
-static void mx21_trigger(struct spi_imx_data *spi_imx)
-{
-	unsigned int reg;
-
-	reg = readl(spi_imx->base + MXC_CSPICTRL);
-	reg |= MX21_CSPICTRL_XCH;
-	writel(reg, spi_imx->base + MXC_CSPICTRL);
-}
-
-static int mx21_config(struct spi_device *spi, struct spi_imx_config *config)
-{
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(spi->master);
-	unsigned int reg = MX21_CSPICTRL_ENABLE | MX21_CSPICTRL_MASTER;
-	unsigned int max = is_imx27_cspi(spi_imx) ? 16 : 18;
-
-	reg |= spi_imx_clkdiv_1(spi_imx->spi_clk, config->speed_hz, max) <<
-		MX21_CSPICTRL_DR_SHIFT;
-	reg |= config->bpw - 1;
-
-	if (spi->mode & SPI_CPHA)
-		reg |= MX21_CSPICTRL_PHA;
-	if (spi->mode & SPI_CPOL)
-		reg |= MX21_CSPICTRL_POL;
-	if (spi->mode & SPI_CS_HIGH)
-		reg |= MX21_CSPICTRL_SSPOL;
-	if (spi->cs_gpio < 0)
-		reg |= (spi->cs_gpio + 32) << MX21_CSPICTRL_CS_SHIFT;
-
-	writel(reg, spi_imx->base + MXC_CSPICTRL);
-
-	return 0;
-}
-
-static int mx21_rx_available(struct spi_imx_data *spi_imx)
-{
-	return readl(spi_imx->base + MXC_CSPIINT) & MX21_INTREG_RR;
-}
-
-static void mx21_reset(struct spi_imx_data *spi_imx)
-{
-	writel(1, spi_imx->base + MXC_RESET);
-}
-
-#define MX1_INTREG_RR		(1 << 3)
-#define MX1_INTREG_TEEN		(1 << 8)
-#define MX1_INTREG_RREN		(1 << 11)
-
-#define MX1_CSPICTRL_POL	(1 << 4)
-#define MX1_CSPICTRL_PHA	(1 << 5)
-#define MX1_CSPICTRL_XCH	(1 << 8)
-#define MX1_CSPICTRL_ENABLE	(1 << 9)
-#define MX1_CSPICTRL_MASTER	(1 << 10)
-#define MX1_CSPICTRL_DR_SHIFT	13
-
-static void mx1_intctrl(struct spi_imx_data *spi_imx, int enable)
-{
-	unsigned int val = 0;
-
-	if (enable & MXC_INT_TE)
-		val |= MX1_INTREG_TEEN;
-	if (enable & MXC_INT_RR)
-		val |= MX1_INTREG_RREN;
-
-	writel(val, spi_imx->base + MXC_CSPIINT);
-}
-
-static void mx1_trigger(struct spi_imx_data *spi_imx)
-{
-	unsigned int reg;
-
-	reg = readl(spi_imx->base + MXC_CSPICTRL);
-	reg |= MX1_CSPICTRL_XCH;
-	writel(reg, spi_imx->base + MXC_CSPICTRL);
-}
-
-static int mx1_config(struct spi_device *spi, struct spi_imx_config *config)
-{
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(spi->master);
-	unsigned int reg = MX1_CSPICTRL_ENABLE | MX1_CSPICTRL_MASTER;
-	unsigned int clk;
-
-	reg |= spi_imx_clkdiv_2(spi_imx->spi_clk, config->speed_hz, &clk) <<
-		MX1_CSPICTRL_DR_SHIFT;
-	spi_imx->spi_bus_clk = clk;
-
-	reg |= config->bpw - 1;
-
-	if (spi->mode & SPI_CPHA)
-		reg |= MX1_CSPICTRL_PHA;
-	if (spi->mode & SPI_CPOL)
-		reg |= MX1_CSPICTRL_POL;
-
-	writel(reg, spi_imx->base + MXC_CSPICTRL);
-
-	return 0;
-}
-
-static int mx1_rx_available(struct spi_imx_data *spi_imx)
-{
-	return readl(spi_imx->base + MXC_CSPIINT) & MX1_INTREG_RR;
-}
-
-static void mx1_reset(struct spi_imx_data *spi_imx)
-{
-	writel(1, spi_imx->base + MXC_RESET);
-}
-
-static struct spi_imx_devtype_data imx1_cspi_devtype_data = {
-	.intctrl = mx1_intctrl,
-	.config = mx1_config,
-	.trigger = mx1_trigger,
-	.rx_available = mx1_rx_available,
-	.reset = mx1_reset,
-	.devtype = IMX1_CSPI,
+/**
+ * enum probe_type - device driver probe type to try
+ *	Device drivers may opt in for special handling of their
+ *	respective probe routines. This tells the core what to
+ *	expect and prefer.
+ *
+ * @PROBE_DEFAULT_STRATEGY: Used by drivers that work equally well
+ *	whether probed synchronously or asynchronously.
+ * @PROBE_PREFER_ASYNCHRONOUS: Drivers for "slow" devices which
+ *	probing order is not essential for booting the system may
+ *	opt into executing their probes asynchronously.
+ * @PROBE_FORCE_SYNCHRONOUS: Use this to annotate drivers that need
+ *	their probe routines to run synchronously with driver and
+ *	device registration (with the exception of -EPROBE_DEFER
+ *	handling - re-probing always ends up being done asynchronously).
+ *
+ * Note that the end goal is to switch the kernel to use asynchronous
+ * probing by default, so annotating drivers with
+ * %PROBE_PREFER_ASYNCHRONOUS is a temporary measure that allows us
+ * to speed up boot process while we are validating the rest of the
+ * drivers.
+ */
+enum probe_type {
+	PROBE_DEFAULT_STRATEGY,
+	PROBE_PREFER_ASYNCHRONOUS,
+	PROBE_FORCE_SYNCHRONOUS,
 };
 
-static struct spi_imx_devtype_data imx21_cspi_devtype_data = {
-	.intctrl = mx21_intctrl,
-	.config = mx21_config,
-	.trigger = mx21_trigger,
-	.rx_available = mx21_rx_available,
-	.reset = mx21_reset,
-	.devtype = IMX21_CSPI,
+/**
+ * struct device_driver - The basic device driver structure
+ * @name:	Name of the device driver.
+ * @bus:	The bus which the device of this driver belongs to.
+ * @owner:	The module owner.
+ * @mod_name:	Used for built-in modules.
+ * @suppress_bind_attrs: Disables bind/unbind via sysfs.
+ * @probe_type:	Type of the probe (synchronous or asynchronous) to use.
+ * @of_match_table: The open firmware table.
+ * @acpi_match_table: The ACPI match table.
+ * @probe:	Called to query the existence of a specific device,
+ *		whether this driver can work with it, and bind the driver
+ *		to a specific device.
+ * @remove:	Called when the device is removed from the system to
+ *		unbind a device from this driver.
+ * @shutdown:	Called at shut-down time to quiesce the device.
+ * @suspend:	Called to put the device to sleep mode. Usually to a
+ *		low power state.
+ * @resume:	Called to bring a device from sleep mode.
+ * @groups:	Default attributes that get created by the driver core
+ *		automatically.
+ * @pm:		Power management operations of the device which matched
+ *		this driver.
+ * @p:		Driver core's private data, no one other than the driver
+ *		core can touch this.
+ *
+ * The device driver-model tracks all of the drivers known to the system.
+ * The main reason for this tracking is to enable the driver core to match
+ * up drivers with new devices. Once drivers are known objects within the
+ * system, however, a number of other things become possible. Device drivers
+ * can export information and configuration variables that are independent
+ * of any specific device.
+ */
+struct device_driver {
+	const char		*name;
+	struct bus_type		*bus;
+
+	struct module		*owner;
+	const char		*mod_name;	/* used for built-in modules */
+
+	bool suppress_bind_attrs;	/* disables bind/unbind via sysfs */
+	enum probe_type probe_type;
+
+	const struct of_device_id	*of_match_table;
+	const struct acpi_device_id	*acpi_match_table;
+
+	int (*probe) (struct device *dev);
+	int (*remove) (struct device *dev);
+	void (*shutdown) (struct device *dev);
+	int (*suspend) (struct device *dev, pm_message_t state);
+	int (*resume) (struct device *dev);
+	const struct attribute_group **groups;
+
+	const struct dev_pm_ops *pm;
+
+	struct driver_private *p;
 };
 
-static struct spi_imx_devtype_data imx27_cspi_devtype_data = {
-	/* i.mx27 cspi shares the functions with i.mx21 one */
-	.intctrl = mx21_intctrl,
-	.config = mx21_config,
-	.trigger = mx21_trigger,
-	.rx_available = mx21_rx_available,
-	.reset = mx21_reset,
-	.devtype = IMX27_CSPI,
+
+extern int __must_check driver_register(struct device_driver *drv);
+extern void driver_unregister(struct device_driver *drv);
+
+extern struct device_driver *driver_find(const char *name,
+					 struct bus_type *bus);
+extern int driver_probe_done(void);
+extern void wait_for_device_probe(void);
+
+
+/* sysfs interface for exporting driver attributes */
+
+struct driver_attribute {
+	struct attribute attr;
+	ssize_t (*show)(struct device_driver *driver, char *buf);
+	ssize_t (*store)(struct device_driver *driver, const char *buf,
+			 size_t count);
 };
 
-static struct spi_imx_devtype_data imx31_cspi_devtype_data = {
-	.intctrl = mx31_intctrl,
-	.config = mx31_config,
-	.trigger = mx31_trigger,
-	.rx_available = mx31_rx_available,
-	.reset = mx31_reset,
-	.devtype = IMX31_CSPI,
+#define DRIVER_ATTR(_name, _mode, _show, _store) \
+	struct driver_attribute driver_attr_##_name = __ATTR(_name, _mode, _show, _store)
+#define DRIVER_ATTR_RW(_name) \
+	struct driver_attribute driver_attr_##_name = __ATTR_RW(_name)
+#define DRIVER_ATTR_RO(_name) \
+	struct driver_attribute driver_attr_##_name = __ATTR_RO(_name)
+#define DRIVER_ATTR_WO(_name) \
+	struct driver_attribute driver_attr_##_name = __ATTR_WO(_name)
+
+extern int __must_check driver_create_file(struct device_driver *driver,
+					const struct driver_attribute *attr);
+extern void driver_remove_file(struct device_driver *driver,
+			       const struct driver_attribute *attr);
+
+extern int __must_check driver_for_each_device(struct device_driver *drv,
+					       struct device *start,
+					       void *data,
+					       int (*fn)(struct device *dev,
+							 void *));
+struct device *driver_find_device(struct device_driver *drv,
+				  struct device *start, void *data,
+				  int (*match)(struct device *dev, void *data));
+
+/**
+ * struct subsys_interface - interfaces to device functions
+ * @name:       name of the device function
+ * @subsys:     subsytem of the devices to attach to
+ * @node:       the list of functions registered at the subsystem
+ * @add_dev:    device hookup to device function handler
+ * @remove_dev: device hookup to device function handler
+ *
+ * Simple interfaces attached to a subsystem. Multiple interfaces can
+ * attach to a subsystem and its devices. Unlike drivers, they do not
+ * exclusively claim or control devices. Interfaces usually represent
+ * a specific functionality of a subsystem/class of devices.
+ */
+struct subsys_interface {
+	const char *name;
+	struct bus_type *subsys;
+	struct list_head node;
+	int (*add_dev)(struct device *dev, struct subsys_interface *sif);
+	void (*remove_dev)(struct device *dev, struct subsys_interface *sif);
 };
 
-static struct spi_imx_devtype_data imx35_cspi_devtype_data = {
-	/* i.mx35 and later cspi shares the functions with i.mx31 one */
-	.intctrl = mx31_intctrl,
-	.config = mx31_config,
-	.trigger = mx31_trigger,
-	.rx_available = mx31_rx_available,
-	.reset = mx31_reset,
-	.devtype = IMX35_CSPI,
+int subsys_interface_register(struct subsys_interface *sif);
+void subsys_interface_unregister(struct subsys_interface *sif);
+
+int subsys_system_register(struct bus_type *subsys,
+			   const struct attribute_group **groups);
+int subsys_virtual_register(struct bus_type *subsys,
+			    const struct attribute_group **groups);
+
+/**
+ * struct class - device classes
+ * @name:	Name of the class.
+ * @owner:	The module owner.
+ * @class_attrs: Default attributes of this class.
+ * @dev_groups:	Default attributes of the devices that belong to the class.
+ * @dev_kobj:	The kobject that represents this class and links it into the hierarchy.
+ * @dev_uevent:	Called when a device is added, removed from this class, or a
+ *		few other things that generate uevents to add the environment
+ *		variables.
+ * @devnode:	Callback to provide the devtmpfs.
+ * @class_release: Called to release this class.
+ * @dev_release: Called to release the device.
+ * @suspend:	Used to put the device to sleep mode, usually to a low power
+ *		state.
+ * @resume:	Used to bring the device from the sleep mode.
+ * @shutdown:	Called at shut-down time to quiesce the device.
+ * @ns_type:	Callbacks so sysfs can detemine namespaces.
+ * @namespace:	Namespace of the device belongs to this class.
+ * @pm:		The default device power management operations of this class.
+ * @p:		The private data of the driver core, no one other than the
+ *		driver core can touch this.
+ *
+ * A class is a higher-level view of a device that abstracts out low-level
+ * implementation details. Drivers may see a SCSI disk or an ATA disk, but,
+ * at the class level, they are all simply disks. Classes allow user space
+ * to work with devices based on what they do, rather than how they are
+ * connected or how they work.
+ */
+struct class {
+	const char		*name;
+	struct module		*owner;
+
+	struct class_attribute		*class_attrs;
+	const struct attribute_group	**dev_groups;
+	struct kobject			*dev_kobj;
+
+	int (*dev_uevent)(struct device *dev, struct kobj_uevent_env *env);
+	char *(*devnode)(struct device *dev, umode_t *mode);
+
+	void (*class_release)(struct class *class);
+	void (*dev_release)(struct device *dev);
+
+	int (*suspend)(struct device *dev, pm_message_t state);
+	int (*resume)(struct device *dev);
+	int (*shutdown)(struct device *dev);
+
+	const struct kobj_ns_type_operations *ns_type;
+	const void *(*namespace)(struct device *dev);
+
+	const struct dev_pm_ops *pm;
+
+	struct subsys_private *p;
 };
 
-static struct spi_imx_devtype_data imx51_ecspi_devtype_data = {
-	.intctrl = mx51_ecspi_intctrl,
-	.config = mx51_ecspi_config,
-	.trigger = mx51_ecspi_trigger,
-	.rx_available = mx51_ecspi_rx_available,
-	.reset = mx51_ecspi_reset,
-	.devtype = IMX51_ECSPI,
+struct class_dev_iter {
+	struct klist_iter		ki;
+	const struct device_type	*type;
 };
 
-static struct spi_imx_devtype_data imx6ul_ecspi_devtype_data = {
-	.intctrl = mx51_ecspi_intctrl,
-	.config = mx51_ecspi_config,
-	.trigger = mx51_ecspi_trigger,
-	.rx_available = mx51_ecspi_rx_available,
-	.reset = mx51_ecspi_reset,
-	.devtype = IMX6UL_ECSPI,
+extern struct kobject *sysfs_dev_block_kobj;
+extern struct kobject *sysfs_dev_char_kobj;
+extern int __must_check __class_register(struct class *class,
+					 struct lock_class_key *key);
+extern void class_unregister(struct class *class);
+
+/* This is a #define to keep the compiler from merging different
+ * instances of the __key variable */
+#define class_register(class)			\
+({						\
+	static struct lock_class_key __key;	\
+	__class_register(class, &__key);	\
+})
+
+struct class_compat;
+struct class_compat *class_compat_register(const char *name);
+void class_compat_unregister(struct class_compat *cls);
+int class_compat_create_link(struct class_compat *cls, struct device *dev,
+			     struct device *device_link);
+void class_compat_remove_link(struct class_compat *cls, struct device *dev,
+			      struct device *device_link);
+
+extern void class_dev_iter_init(struct class_dev_iter *iter,
+				struct class *class,
+				struct device *start,
+				const struct device_type *type);
+extern struct device *class_dev_iter_next(struct class_dev_iter *iter);
+extern void class_dev_iter_exit(struct class_dev_iter *iter);
+
+extern int class_for_each_device(struct class *class, struct device *start,
+				 void *data,
+				 int (*fn)(struct device *dev, void *data));
+extern struct device *class_find_device(struct class *class,
+					struct device *start, const void *data,
+					int (*match)(struct device *, const void *));
+
+struct class_attribute {
+	struct attribute attr;
+	ssize_t (*show)(struct class *class, struct class_attribute *attr,
+			char *buf);
+	ssize_t (*store)(struct class *class, struct class_attribute *attr,
+			const char *buf, size_t count);
 };
 
-static struct platform_device_id spi_imx_devtype[] = {
-	{
-		.name = "imx1-cspi",
-		.driver_data = (kernel_ulong_t) &imx1_cspi_devtype_data,
-	}, {
-		.name = "imx21-cspi",
-		.driver_data = (kernel_ulong_t) &imx21_cspi_devtype_data,
-	}, {
-		.name = "imx27-cspi",
-		.driver_data = (kernel_ulong_t) &imx27_cspi_devtype_data,
-	}, {
-		.name = "imx31-cspi",
-		.driver_data = (kernel_ulong_t) &imx31_cspi_devtype_data,
-	}, {
-		.name = "imx35-cspi",
-		.driver_data = (kernel_ulong_t) &imx35_cspi_devtype_data,
-	}, {
-		.name = "imx51-ecspi",
-		.driver_data = (kernel_ulong_t) &imx51_ecspi_devtype_data,
-	}, {
-		.name = "imx6ul-ecspi",
-		.driver_data = (kernel_ulong_t) &imx6ul_ecspi_devtype_data,
-	}, {
-		/* sentinel */
-	}
+#define CLASS_ATTR(_name, _mode, _show, _store) \
+	struct class_attribute class_attr_##_name = __ATTR(_name, _mode, _show, _store)
+#define CLASS_ATTR_RW(_name) \
+	struct class_attribute class_attr_##_name = __ATTR_RW(_name)
+#define CLASS_ATTR_RO(_name) \
+	struct class_attribute class_attr_##_name = __ATTR_RO(_name)
+
+extern int __must_check class_create_file_ns(struct class *class,
+					     const struct class_attribute *attr,
+					     const void *ns);
+extern void class_remove_file_ns(struct class *class,
+				 const struct class_attribute *attr,
+				 const void *ns);
+
+static inline int __must_check class_create_file(struct class *class,
+					const struct class_attribute *attr)
+{
+	return class_create_file_ns(class, attr, NULL);
+}
+
+static inline void class_remove_file(struct class *class,
+				     const struct class_attribute *attr)
+{
+	return class_remove_file_ns(class, attr, NULL);
+}
+
+/* Simple class attribute that is just a static string */
+struct class_attribute_string {
+	struct class_attribute attr;
+	char *str;
 };
 
-static const struct of_device_id spi_imx_dt_ids[] = {
-	{ .compatible = "fsl,imx1-cspi", .data = &imx1_cspi_devtype_data, },
-	{ .compatible = "fsl,imx21-cspi", .data = &imx21_cspi_devtype_data, },
-	{ .compatible = "fsl,imx27-cspi", .data = &imx27_cspi_devtype_data, },
-	{ .compatible = "fsl,imx31-cspi", .data = &imx31_cspi_devtype_data, },
-	{ .compatible = "fsl,imx35-cspi", .data = &imx35_cspi_devtype_data, },
-	{ .compatible = "fsl,imx51-ecspi", .data = &imx51_ecspi_devtype_data, },
-	{ .compatible = "fsl,imx6ul-ecspi", .data = &imx6ul_ecspi_devtype_data, },
-	{ /* sentinel */ }
+/* Currently read-only only */
+#define _CLASS_ATTR_STRING(_name, _mode, _str) \
+	{ __ATTR(_name, _mode, show_class_attr_string, NULL), _str }
+#define CLASS_ATTR_STRING(_name, _mode, _str) \
+	struct class_attribute_string class_attr_##_name = \
+		_CLASS_ATTR_STRING(_name, _mode, _str)
+
+extern ssize_t show_class_attr_string(struct class *class, struct class_attribute *attr,
+                        char *buf);
+
+struct class_interface {
+	struct list_head	node;
+	struct class		*class;
+
+	int (*add_dev)		(struct device *, struct class_interface *);
+	void (*remove_dev)	(struct device *, struct class_interface *);
 };
-MODULE_DEVICE_TABLE(of, spi_imx_dt_ids);
 
-static void spi_imx_chipselect(struct spi_device *spi, int is_active)
-{
-	int active = is_active != BITBANG_CS_INACTIVE;
-	int dev_is_lowactive = !(spi->mode & SPI_CS_HIGH);
-
-	if (!gpio_is_valid(spi->cs_gpio))
-		return;
-
-	gpio_set_value(spi->cs_gpio, dev_is_lowactive ^ active);
-}
-
-static void spi_imx_push(struct spi_imx_data *spi_imx)
-{
-	while (spi_imx->txfifo < spi_imx_get_fifosize(spi_imx)) {
-		if (!spi_imx->count)
-			break;
-		spi_imx->tx(spi_imx);
-		spi_imx->txfifo++;
-	}
-
-	spi_imx->devtype_data->trigger(spi_imx);
-}
-
-static irqreturn_t spi_imx_isr(int irq, void *dev_id)
-{
-	struct spi_imx_data *spi_imx = dev_id;
-
-	while (spi_imx->devtype_data->rx_available(spi_imx)) {
-		spi_imx->rx(spi_imx);
-		spi_imx->txfifo--;
-	}
-
-	if (spi_imx->count) {
-		spi_imx_push(spi_imx);
-		return IRQ_HANDLED;
-	}
-
-	if (spi_imx->txfifo) {
-		/* No data left to push, but still waiting for rx data,
-		 * enable receive data available interrupt.
-		 */
-		spi_imx->devtype_data->intctrl(
-				spi_imx, MXC_INT_RR);
-		return IRQ_HANDLED;
-	}
-
-	spi_imx->devtype_data->intctrl(spi_imx, 0);
-	complete(&spi_imx->xfer_done);
-
-	return IRQ_HANDLED;
-}
-
-static int spi_imx_dma_configure(struct spi_master *master,
-				 int bytes_per_word)
-{
-	int ret;
-	enum dma_slave_buswidth buswidth;
-	struct dma_slave_config rx = {}, tx = {};
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(master);
-
-	if (bytes_per_word == spi_imx->bytes_per_word)
-		/* Same as last time */
-		return 0;
-
-	switch (bytes_per_word) {
-	case 4:
-		buswidth = DMA_SLAVE_BUSWIDTH_4_BYTES;
-		break;
-	case 2:
-		buswidth = DMA_SLAVE_BUSWIDTH_2_BYTES;
-		break;
-	case 1:
-		buswidth = DMA_SLAVE_BUSWIDTH_1_BYTE;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	tx.direction = DMA_MEM_TO_DEV;
-	tx.dst_addr = spi_imx->base_phys + MXC_CSPITXDATA;
-	tx.dst_addr_width = buswidth;
-	tx.dst_maxburst = spi_imx->wml / 2;
-	ret = dmaengine_slave_config(master->dma_tx, &tx);
-	if (ret) {
-		dev_err(spi_imx->dev, "TX dma configuration failed with %d\n", ret);
-		return ret;
-	}
-
-	rx.direction = DMA_DEV_TO_MEM;
-	rx.src_addr = spi_imx->base_phys + MXC_CSPIRXDATA;
-	rx.src_addr_width = buswidth;
-	rx.src_maxburst = spi_imx->wml;
-	ret = dmaengine_slave_config(master->dma_rx, &rx);
-	if (ret) {
-		dev_err(spi_imx->dev, "RX dma configuration failed with %d\n", ret);
-		return ret;
-	}
-
-	spi_imx->bytes_per_word = bytes_per_word;
-
-	return 0;
-}
-
-static int spi_imx_setupxfer(struct spi_device *spi,
-				 struct spi_transfer *t)
-{
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(spi->master);
-	struct spi_imx_config config;
-	int ret;
-
-	config.bpw = t ? t->bits_per_word : spi->bits_per_word;
-	config.speed_hz  = t ? t->speed_hz : spi->max_speed_hz;
-
-	if (!config.speed_hz)
-		config.speed_hz = spi->max_speed_hz;
-	if (!config.bpw)
-		config.bpw = spi->bits_per_word;
-
-	/* Initialize the functions for transfer */
-	if (config.bpw <= 8) {
-		spi_imx->rx = spi_imx_buf_rx_u8;
-		spi_imx->tx = spi_imx_buf_tx_u8;
-	} else if (config.bpw <= 16) {
-		spi_imx->rx = spi_imx_buf_rx_u16;
-		spi_imx->tx = spi_imx_buf_tx_u16;
-	} else {
-		spi_imx->rx = spi_imx_buf_rx_u32;
-		spi_imx->tx = spi_imx_buf_tx_u32;
-	}
-
-	if (spi_imx_can_dma(spi_imx->bitbang.master, spi, t))
-		spi_imx->usedma = 1;
-	else
-		spi_imx->usedma = 0;
-
-	if (spi_imx->usedma) {
-		ret = spi_imx_dma_configure(spi->master,
-					    spi_imx_bytes_per_word(config.bpw));
-		if (ret)
-			return ret;
-	}
-
-	spi_imx->devtype_data->config(spi, &config);
-
-	return 0;
-}
-
-static void spi_imx_sdma_exit(struct spi_imx_data *spi_imx)
-{
-	struct spi_master *master = spi_imx->bitbang.master;
-
-	if (master->dma_rx) {
-		dma_release_channel(master->dma_rx);
-		master->dma_rx = NULL;
-	}
-
-	if (master->dma_tx) {
-		dma_release_channel(master->dma_tx);
-		master->dma_tx = NULL;
-	}
-}
-
-static int spi_imx_sdma_init(struct device *dev, struct spi_imx_data *spi_imx,
-			     struct spi_master *master)
-{
-	int ret;
-
-	spi_imx->wml = spi_imx_get_fifosize(spi_imx) / 2;
-
-	/* Prepare for TX DMA: */
-	master->dma_tx = dma_request_slave_channel_reason(dev, "tx");
-	if (IS_ERR(master->dma_tx)) {
-		ret = PTR_ERR(master->dma_tx);
-		dev_dbg(dev, "can't get the TX DMA channel, error %d!\n", ret);
-		master->dma_tx = NULL;
-		goto err;
-	}
-
-	/* Prepare for RX : */
-	master->dma_rx = dma_request_slave_channel_reason(dev, "rx");
-	if (IS_ERR(master->dma_rx)) {
-		ret = PTR_ERR(master->dma_rx);
-		dev_dbg(dev, "can't get the RX DMA channel, error %d\n", ret);
-		master->dma_rx = NULL;
-		goto err;
-	}
-
-	spi_imx_dma_configure(master, 1);
-
-	init_completion(&spi_imx->dma_rx_completion);
-	init_completion(&spi_imx->dma_tx_completion);
-	master->can_dma = spi_imx_can_dma;
-	master->max_dma_len = MAX_SDMA_BD_BYTES;
-	spi_imx->bitbang.master->flags = SPI_MASTER_MUST_RX |
-					 SPI_MASTER_MUST_TX;
-
-	return 0;
-err:
-	spi_imx_sdma_exit(spi_imx);
-	return ret;
-}
-
-static void spi_imx_dma_rx_callback(void *cookie)
-{
-	struct spi_imx_data *spi_imx = (struct spi_imx_data *)cookie;
-
-	complete(&spi_imx->dma_rx_completion);
-}
-
-static void spi_imx_dma_tx_callback(void *cookie)
-{
-	struct spi_imx_data *spi_imx = (struct spi_imx_data *)cookie;
-
-	complete(&spi_imx->dma_tx_completion);
-}
-
-static int spi_imx_calculate_timeout(struct spi_imx_data *spi_imx, int size)
-{
-	unsigned long timeout = 0;
-
-	/* Time with actual data transfer and CS change delay related to HW */
-	timeout = (8 + 4) * size / spi_imx->spi_bus_clk;
-
-	/* Add extra second for scheduler related activities */
-	timeout += 1;
-
-	/* Double calculated timeout */
-	return msecs_to_jiffies(2 * timeout * MSEC_PER_SEC);
-}
-
-static int spi_imx_dma_transfer(struct spi_imx_data *spi_imx,
-				struct spi_transfer *transfer)
-{
-	struct dma_async_tx_descriptor *desc_tx, *desc_rx;
-	unsigned long transfer_timeout;
-	unsigned long timeout;
-	struct spi_master *master = spi_imx->bitbang.master;
-	struct sg_table *tx = &transfer->tx_sg, *rx = &transfer->rx_sg;
-
-	/*
-	 * The TX DMA setup starts the transfer, so make sure RX is configured
-	 * before TX.
-	 */
-	desc_rx = dmaengine_prep_slave_sg(master->dma_rx,
-				rx->sgl, rx->nents, DMA_DEV_TO_MEM,
-				DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
-	if (!desc_rx)
-		return -EINVAL;
-
-	desc_rx->callback = spi_imx_dma_rx_callback;
-	desc_rx->callback_param = (void *)spi_imx;
-	dmaengine_submit(desc_rx);
-	reinit_completion(&spi_imx->dma_rx_completion);
-	dma_async_issue_pending(master->dma_rx);
-
-	desc_tx = dmaengine_prep_slave_sg(master->dma_tx,
-				tx->sgl, tx->nents, DMA_MEM_TO_DEV,
-				DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
-	if (!desc_tx) {
-		dmaengine_terminate_all(master->dma_tx);
-		return -EINVAL;
-	}
-
-	desc_tx->callback = spi_imx_dma_tx_callback;
-	desc_tx->callback_param = (void *)spi_imx;
-	dmaengine_submit(desc_tx);
-	reinit_completion(&spi_imx->dma_tx_completion);
-	dma_async_issue_pending(master->dma_tx);
-
-	transfer_timeout = spi_imx_calculate_timeout(spi_imx, transfer->len);
-
-	spi_imx->devtype_data->trigger(spi_imx);
-
-	/* Wait SDMA to finish the data transfer.*/
-	timeout = wait_for_completion_timeout(&spi_imx->dma_tx_completion,
-						transfer_timeout);
-	if (!timeout) {
-		dev_err(spi_imx->dev, "I/O Error in DMA TX\n");
-		dmaengine_terminate_all(master->dma_tx);
-		dmaengine_terminate_all(master->dma_rx);
-		return -ETIMEDOUT;
-	}
-
-	timeout = wait_for_completion_timeout(&spi_imx->dma_rx_completion,
-					      transfer_timeout);
-	if (!timeout) {
-		dev_err(&master->dev, "I/O Error in DMA RX\n");
-		spi_imx->devtype_data->reset(spi_imx);
-		dmaengine_terminate_all(master->dma_rx);
-		return -ETIMEDOUT;
-	}
-
-	return transfer->len;
-}
-
-static int spi_imx_pio_transfer(struct spi_device *spi,
-				struct spi_transfer *transfer)
-{
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(spi->master);
-	unsigned long transfer_timeout;
-	unsigned long timeout;
-
-	spi_imx->tx_buf = transfer->tx_buf;
-	spi_imx->rx_buf = transfer->rx_buf;
-	spi_imx->count = transfer->len;
-	spi_imx->txfifo = 0;
-
-	reinit_completion(&spi_imx->xfer_done);
-
-	spi_imx_push(spi_imx);
-
-	spi_imx->devtype_data->intctrl(spi_imx, MXC_INT_TE);
-
-	transfer_timeout = spi_imx_calculate_timeout(spi_imx, transfer->len);
-
-	timeout = wait_for_completion_timeout(&spi_imx->xfer_done,
-					      transfer_timeout);
-	if (!timeout) {
-		dev_err(&spi->dev, "I/O Error in PIO\n");
-		spi_imx->devtype_data->reset(spi_imx);
-		return -ETIMEDOUT;
-	}
-
-	return transfer->len;
-}
-
-static int spi_imx_transfer(struct spi_device *spi,
-				struct spi_transfer *transfer)
-{
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(spi->master);
-
-	if (spi_imx->usedma)
-		return spi_imx_dma_transfer(spi_imx, transfer);
-	else
-		return spi_imx_pio_transfer(spi, transfer);
-}
-
-static int spi_imx_setup(struct spi_device *spi)
-{
-	dev_dbg(&spi->dev, "%s: mode %d, %u bpw, %d hz\n", __func__,
-		 spi->mode, spi->bits_per_word, spi->max_speed_hz);
-
-	if (gpio_is_valid(spi->cs_gpio))
-		gpio_direction_output(spi->cs_gpio,
-				      spi->mode & SPI_CS_HIGH ? 0 : 1);
-
-	spi_imx_chipselect(spi, BITBANG_CS_INACTIVE);
-
-	return 0;
-}
-
-static void spi_imx_cleanup(struct spi_device *spi)
-{
-}
-
-static int
-spi_imx_prepare_message(struct spi_master *master, struct spi_message *msg)
-{
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(master);
-	int ret;
-
-	ret = clk_prepare_enable(spi_imx->clk_per);
-	if (ret)
-		return ret;
-
-	ret = clk_prepare_enable(spi_imx->clk_ipg);
-	if (ret) {
-		clk_disable_unprepare(spi_imx->clk_per);
-		return ret;
-	}
-
-	return 0;
-}
-
-static int
-spi_imx_unprepare_message(struct spi_master *master, struct spi_message *msg)
-{
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(master);
-
-	clk_disable_unprepare(spi_imx->clk_ipg);
-	clk_disable_unprepare(spi_imx->clk_per);
-	return 0;
-}
-
-static int spi_imx_probe(struct platform_device *pdev)
-{
-	struct device_node *np = pdev->dev.of_node;
-	const struct of_device_id *of_id =
-			of_match_device(spi_imx_dt_ids, &pdev->dev);
-	struct spi_imx_master *mxc_platform_info =
-			dev_get_platdata(&pdev->dev);
-	struct spi_master *master;
-	struct spi_imx_data *spi_imx;
-	struct resource *res;
-	int i, ret, irq;
-
-	if (!np && !mxc_platform_info) {
-		dev_err(&pdev->dev, "can't get the platform data\n");
-		return -EINVAL;
-	}
-
-	master = spi_alloc_master(&pdev->dev, sizeof(struct spi_imx_data));
-	if (!master)
-		return -ENOMEM;
-
-	platform_set_drvdata(pdev, master);
-
-	master->bits_per_word_mask = SPI_BPW_RANGE_MASK(1, 32);
-	master->bus_num = np ? -1 : pdev->id;
-
-	spi_imx = spi_master_get_devdata(master);
-	spi_imx->bitbang.master = master;
-	spi_imx->dev = &pdev->dev;
-
-	spi_imx->devtype_data = of_id ? of_id->data :
-		(struct spi_imx_devtype_data *)pdev->id_entry->driver_data;
-
-	if (mxc_platform_info) {
-		master->num_chipselect = mxc_platform_info->num_chipselect;
-		master->cs_gpios = devm_kzalloc(&master->dev,
-			sizeof(int) * master->num_chipselect, GFP_KERNEL);
-		if (!master->cs_gpios)
-			return -ENOMEM;
-
-		for (i = 0; i < master->num_chipselect; i++)
-			master->cs_gpios[i] = mxc_platform_info->chipselect[i];
- 	}
-
-	spi_imx->bitbang.chipselect = spi_imx_chipselect;
-	spi_imx->bitbang.setup_transfer = spi_imx_setupxfer;
-	spi_imx->bitbang.txrx_bufs = spi_imx_transfer;
-	spi_imx->bitbang.master->setup = spi_imx_setup;
-	spi_imx->bitbang.master->cleanup = spi_imx_cleanup;
-	spi_imx->bitbang.master->prepare_message = spi_imx_prepare_message;
-	spi_imx->bitbang.master->unprepare_message = spi_imx_unprepare_message;
-	spi_imx->bitbang.master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
-	if (is_imx35_cspi(spi_imx) || is_imx51_ecspi(spi_imx))
-		spi_imx->bitbang.master->mode_bits |= SPI_LOOP;
-
-	init_completion(&spi_imx->xfer_done);
-
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	spi_imx->base = devm_ioremap_resource(&pdev->dev, res);
-	if (IS_ERR(spi_imx->base)) {
-		ret = PTR_ERR(spi_imx->base);
-		goto out_master_put;
-	}
-	spi_imx->base_phys = res->start;
-
-	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		ret = irq;
-		goto out_master_put;
-	}
-
-	ret = devm_request_irq(&pdev->dev, irq, spi_imx_isr, 0,
-			       dev_name(&pdev->dev), spi_imx);
-	if (ret) {
-		dev_err(&pdev->dev, "can't get irq%d: %d\n", irq, ret);
-		goto out_master_put;
-	}
-
-	spi_imx->clk_ipg = devm_clk_get(&pdev->dev, "ipg");
-	if (IS_ERR(spi_imx->clk_ipg)) {
-		ret = PTR_ERR(spi_imx->clk_ipg);
-		goto out_master_put;
-	}
-
-	spi_imx->clk_per = devm_clk_get(&pdev->dev, "per");
-	if (IS_ERR(spi_imx->clk_per)) {
-		ret = PTR_ERR(spi_imx->clk_per);
-		goto out_master_put;
-	}
-
-	ret = clk_prepare_enable(spi_imx->clk_per);
-	if (ret)
-		goto out_master_put;
-
-	ret = clk_prepare_enable(spi_imx->clk_ipg);
-	if (ret)
-		goto out_put_per;
-
-	spi_imx->spi_clk = clk_get_rate(spi_imx->clk_per);
-	/*
-	 * Only validated on i.mx6 now, can remove the constrain if validated on
-	 * other chips.
-	 */
-	if (is_imx51_ecspi(spi_imx)) {
-		ret = spi_imx_sdma_init(&pdev->dev, spi_imx, master);
-		if (ret == -EPROBE_DEFER)
-			goto out_clk_put;
-
-		if (ret < 0)
-			dev_err(&pdev->dev, "dma setup error %d, use pio\n",
-				ret);
-	}
-
-	spi_imx->devtype_data->reset(spi_imx);
-
-	spi_imx->devtype_data->intctrl(spi_imx, 0);
-
-	master->dev.of_node = pdev->dev.of_node;
-	ret = spi_bitbang_start(&spi_imx->bitbang);
-	if (ret) {
-		dev_err(&pdev->dev, "bitbang start failed with %d\n", ret);
-		goto out_clk_put;
-	}
-
-	if (!master->cs_gpios) {
-		dev_err(&pdev->dev, "No CS GPIOs available\n");
-		ret = -EINVAL;
-		goto out_clk_put;
-	}
-
-	for (i = 0; i < master->num_chipselect; i++) {
-		if (!gpio_is_valid(master->cs_gpios[i]))
-			continue;
-
-		ret = devm_gpio_request(&pdev->dev, master->cs_gpios[i],
-					DRIVER_NAME);
-		if (ret) {
-			dev_err(&pdev->dev, "Can't get CS GPIO %i\n",
-				master->cs_gpios[i]);
-			goto out_clk_put;
-		}
-	}
-
-	dev_info(&pdev->dev, "probed\n");
-
-	clk_disable_unprepare(spi_imx->clk_ipg);
-	clk_disable_unprepare(spi_imx->clk_per);
-	return ret;
-
-out_clk_put:
-	clk_disable_unprepare(spi_imx->clk_ipg);
-out_put_per:
-	clk_disable_unprepare(spi_imx->clk_per);
-out_master_put:
-	spi_master_put(master);
-
-	return ret;
-}
-
-static int spi_imx_remove(struct platform_device *pdev)
-{
-	struct spi_master *master = platform_get_drvdata(pdev);
-	struct spi_imx_data *spi_imx = spi_master_get_devdata(master);
-	int ret;
-
-	spi_bitbang_stop(&spi_imx->bitbang);
-
-	ret = clk_enable(spi_imx->clk_per);
-	if (ret)
-		return ret;
-
-	ret = clk_enable(spi_imx->clk_ipg);
-	if (ret) {
-		clk_disable(spi_imx->clk_per);
-		return ret;
-	}
-
-	writel(0, spi_imx->base + MXC_CSPICTRL);
-	clk_disable_unprepare(spi_imx->clk_ipg);
-	clk_disable_unprepare(spi_imx->clk_per);
-	spi_imx_sdma_exit(spi_imx);
-	spi_master_put(master);
-
-	return 0;
-}
-
-#ifdef CONFIG_PM_SLEEP
-static int spi_imx_suspend(struct device *dev)
-{
-	pinctrl_pm_select_sleep_state(dev);
-	return 0;
-}
-
-static int spi_imx_resume(struct device *dev)
-{
-	pinctrl_pm_select_default_state(dev);
-	return 0;
-}
-
-static SIMPLE_DEV_PM_OPS(imx_spi_pm, spi_imx_suspend, spi_imx_resume);
-#define IMX_SPI_PM       (&imx_spi_pm)
+extern int __must_check class_interface_register(struct class_interface *);
+extern void class_interface_unregister(struct class_interface *);
+
+extern struct class * __must_check __class_create(struct module *owner,
+						  const char *name,
+						  struct lock_class_key *key);
+extern void class_destroy(struct class *cls);
+
+/* This is a #define to keep the compiler from merging different
+ * instances of the __key variable */
+#define class_create(owner, name)		\
+({						\
+	static struct lock_class_key __key;	\
+	__class_create(owner, name, &__key);	\
+})
+
+/*
+ * The type of device, "struct device" is embedded in. A class
+ * or bus can contain devices of different types
+ * like "partitions" and "disks", "mouse" and "event".
+ * This identifies the device type and carries type-specific
+ * information, equivalent to the kobj_type of a kobject.
+ * If "name" is specified, the uevent will contain it in
+ * the DEVTYPE variable.
+ */
+struct device_type {
+	const char *name;
+	const struct attribute_group **groups;
+	int (*uevent)(struct device *dev, struct kobj_uevent_env *env);
+	char *(*devnode)(struct device *dev, umode_t *mode,
+			 kuid_t *uid, kgid_t *gid);
+	void (*release)(struct device *dev);
+
+	const struct dev_pm_ops *pm;
+};
+
+/* interface for exporting device attributes */
+struct device_attribute {
+	struct attribute	attr;
+	ssize_t (*show)(struct device *dev, struct device_attribute *attr,
+			char *buf);
+	ssize_t (*store)(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count);
+};
+
+struct dev_ext_attribute {
+	struct device_attribute attr;
+	void *var;
+};
+
+ssize_t device_show_ulong(struct device *dev, struct device_attribute *attr,
+			  char *buf);
+ssize_t device_store_ulong(struct device *dev, struct device_attribute *attr,
+			   const char *buf, size_t count);
+ssize_t device_show_int(struct device *dev, struct device_attribute *attr,
+			char *buf);
+ssize_t device_store_int(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count);
+ssize_t device_show_bool(struct device *dev, struct device_attribute *attr,
+			char *buf);
+ssize_t device_store_bool(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count);
+
+#define DEVICE_ATTR(_name, _mode, _show, _store) \
+	struct device_attribute dev_attr_##_name = __ATTR(_name, _mode, _show, _store)
+#define DEVICE_ATTR_RW(_name) \
+	struct device_attribute dev_attr_##_name = __ATTR_RW(_name)
+#define DEVICE_ATTR_RO(_name) \
+	struct device_attribute dev_attr_##_name = __ATTR_RO(_name)
+#define DEVICE_ATTR_WO(_name) \
+	struct device_attribute dev_attr_##_name = __ATTR_WO(_name)
+#define DEVICE_ULONG_ATTR(_name, _mode, _var) \
+	struct dev_ext_attribute dev_attr_##_name = \
+		{ __ATTR(_name, _mode, device_show_ulong, device_store_ulong), &(_var) }
+#define DEVICE_INT_ATTR(_name, _mode, _var) \
+	struct dev_ext_attribute dev_attr_##_name = \
+		{ __ATTR(_name, _mode, device_show_int, device_store_int), &(_var) }
+#define DEVICE_BOOL_ATTR(_name, _mode, _var) \
+	struct dev_ext_attribute dev_attr_##_name = \
+		{ __ATTR(_name, _mode, device_show_bool, device_store_bool), &(_var) }
+#define DEVICE_ATTR_IGNORE_LOCKDEP(_name, _mode, _show, _store) \
+	struct device_attribute dev_attr_##_name =		\
+		__ATTR_IGNORE_LOCKDEP(_name, _mode, _show, _store)
+
+extern int device_create_file(struct device *device,
+			      const struct device_attribute *entry);
+extern void device_remove_file(struct device *dev,
+			       const struct device_attribute *attr);
+extern bool device_remove_file_self(struct device *dev,
+				    const struct device_attribute *attr);
+extern int __must_check device_create_bin_file(struct device *dev,
+					const struct bin_attribute *attr);
+extern void device_remove_bin_file(struct device *dev,
+				   const struct bin_attribute *attr);
+
+/* device resource management */
+typedef void (*dr_release_t)(struct device *dev, void *res);
+typedef int (*dr_match_t)(struct device *dev, void *res, void *match_data);
+
+#ifdef CONFIG_DEBUG_DEVRES
+extern void *__devres_alloc_node(dr_release_t release, size_t size, gfp_t gfp,
+				 int nid, const char *name) __malloc;
+#define devres_alloc(release, size, gfp) \
+	__devres_alloc_node(release, size, gfp, NUMA_NO_NODE, #release)
+#define devres_alloc_node(release, size, gfp, nid) \
+	__devres_alloc_node(release, size, gfp, nid, #release)
 #else
-#define IMX_SPI_PM       NULL
+extern void *devres_alloc_node(dr_release_t release, size_t size, gfp_t gfp,
+			       int nid) __malloc;
+static inline void *devres_alloc(dr_release_t release, size_t size, gfp_t gfp)
+{
+	return devres_alloc_node(release, size, gfp, NUMA_NO_NODE);
+}
 #endif
 
-static struct platform_driver spi_imx_driver = {
-	.driver = {
-		   .name = DRIVER_NAME,
-		   .of_match_table = spi_imx_dt_ids,
-		   .pm = IMX_SPI_PM,
-	},
-	.id_table = spi_imx_devtype,
-	.probe = spi_imx_probe,
-	.remove = spi_imx_remove,
-};
-module_platform_driver(spi_imx_driver);
+extern void devres_for_each_res(struct device *dev, dr_release_t release,
+				dr_match_t match, void *match_data,
+				void (*fn)(struct device *, void *, void *),
+				void *data);
+extern void devres_free(void *res);
+extern void devres_add(struct device *dev, void *res);
+extern void *devres_find(struct device *dev, dr_release_t release,
+			 dr_match_t match, void *match_data);
+extern void *devres_get(struct device *dev, void *new_res,
+			dr_match_t match, void *match_data);
+extern void *devres_remove(struct device *dev, dr_release_t release,
+			   dr_match_t match, void *match_data);
+extern int devres_destroy(struct device *dev, dr_release_t release,
+			  dr_match_t match, void *match_data);
+extern int devres_release(struct device *dev, dr_release_t release,
+			  dr_match_t match, void *match_data);
 
-MODULE_DESCRIPTION("SPI Master Controller driver");
-MODULE_AUTHOR("Sascha Hauer, Pengutronix");
-MODULE_LICENSE("GPL");
-MODULE_ALIAS("platform:" DRIVER_NAME);
+/* devres group */
+extern void * __must_check devres_open_group(struct device *dev, void *id,
+					     gfp_t gfp);
+extern void devres_close_group(struct device *dev, void *id);
+extern void devres_remove_group(struct device *dev, void *id);
+extern int devres_release_group(struct device *dev, void *id);
+
+/* managed devm_k.alloc/kfree for device drivers */
+extern void *devm_kmalloc(struct device *dev, size_t size, gfp_t gfp) __malloc;
+extern __printf(3, 0)
+char *devm_kvasprintf(struct device *dev, gfp_t gfp, const char *fmt,
+		      va_list ap) __malloc;
+extern __printf(3, 4)
+char *devm_kasprintf(struct device *dev, gfp_t gfp, const char *fmt, ...) __malloc;
+static inline void *devm_kzalloc(struct device *dev, size_t size, gfp_t gfp)
+{
+	return devm_kmalloc(dev, size, gfp | __GFP_ZERO);
+}
+static inline void *devm_kmalloc_array(struct device *dev,
+				       size_t n, size_t size, gfp_t flags)
+{
+	if (size != 0 && n > SIZE_MAX / size)
+		return NULL;
+	return devm_kmalloc(dev, n * size, flags);
+}
+static inline void *devm_kcalloc(struct device *dev,
+				 size_t n, size_t size, gfp_t flags)
+{
+	return devm_kmalloc_array(dev, n, size, flags | __GFP_ZERO);
+}
+extern void devm_kfree(struct device *dev, void *p);
+extern char *devm_kstrdup(struct device *dev, const char *s, gfp_t gfp) __malloc;
+extern void *devm_kmemdup(struct device *dev, const void *src, size_t len,
+			  gfp_t gfp);
+
+extern unsigned long devm_get_free_pages(struct device *dev,
+					 gfp_t gfp_mask, unsigned int order);
+extern void devm_free_pages(struct device *dev, unsigned long addr);
+
+void __iomem *devm_ioremap_resource(struct device *dev, struct resource *res);
+
+/* allows to add/remove a custom action to devres stack */
+int devm_add_action(struct device *dev, void (*action)(void *), void *data);
+void devm_remove_action(struct device *dev, void (*action)(void *), void *data);
+
+static inline int devm_add_action_or_reset(struct device *dev,
+					   void (*action)(void *), void *data)
+{
+	int ret;
+
+	ret = devm_add_action(dev, action, data);
+	if (ret)
+		action(data);
+
+	return ret;
+}
+
+struct device_dma_parameters {
+	/*
+	 * a low level driver may set these to teach IOMMU code about
+	 * sg limitations.
+	 */
+	unsigned int max_segment_size;
+	unsigned long segment_boundary_mask;
+};
+
+/**
+ * enum device_link_state - Device link states.
+ * @DL_STATE_NONE: The presence of the drivers is not being tracked.
+ * @DL_STATE_DORMANT: None of the supplier/consumer drivers is present.
+ * @DL_STATE_AVAILABLE: The supplier driver is present, but the consumer is not.
+ * @DL_STATE_CONSUMER_PROBE: The consumer is probing (supplier driver present).
+ * @DL_STATE_ACTIVE: Both the supplier and consumer drivers are present.
+ * @DL_STATE_SUPPLIER_UNBIND: The supplier driver is unbinding.
+ */
+enum device_link_state {
+	DL_STATE_NONE = -1,
+	DL_STATE_DORMANT = 0,
+	DL_STATE_AVAILABLE,
+	DL_STATE_CONSUMER_PROBE,
+	DL_STATE_ACTIVE,
+	DL_STATE_SUPPLIER_UNBIND,
+};
+
+/*
+ * Device link flags.
+ *
+ * STATELESS: The core won't track the presence of supplier/consumer drivers.
+ * AUTOREMOVE: Remove this link automatically on consumer driver unbind.
+ */
+#define DL_FLAG_STATELESS	BIT(0)
+#define DL_FLAG_AUTOREMOVE	BIT(1)
+
+/**
+ * struct device_link - Device link representation.
+ * @supplier: The device on the supplier end of the link.
+ * @s_node: Hook to the supplier device's list of links to consumers.
+ * @consumer: The device on the consumer end of the link.
+ * @c_node: Hook to the consumer device's list of links to suppliers.
+ * @status: The state of the link (with respect to the presence of drivers).
+ * @flags: Link flags.
+ * @rcu_head: An RCU head to use for deferred execution of SRCU callbacks.
+ */
+struct device_link {
+	struct device *supplier;
+	struct list_head s_node;
+	struct device *consumer;
+	struct list_head c_node;
+	enum device_link_state status;
+	u32 flags;
+#ifdef CONFIG_SRCU
+	struct rcu_head rcu_head;
+#endif
+};
+
+/**
+ * enum dl_dev_state - Device driver presence tracking information.
+ * @DL_DEV_NO_DRIVER: There is no driver attached to the device.
+ * @DL_DEV_PROBING: A driver is probing.
+ * @DL_DEV_DRIVER_BOUND: The driver has been bound to the device.
+ * @DL_DEV_UNBINDING: The driver is unbinding from the device.
+ */
+enum dl_dev_state {
+	DL_DEV_NO_DRIVER = 0,
+	DL_DEV_PROBING,
+	DL_DEV_DRIVER_BOUND,
+	DL_DEV_UNBINDING,
+};
+
+/**
+ * struct dev_links_info - Device data related to device links.
+ * @suppliers: List of links to supplier devices.
+ * @consumers: List of links to consumer devices.
+ * @status: Driver status information.
+ */
+struct dev_links_info {
+	struct list_head suppliers;
+	struct list_head consumers;
+	enum dl_dev_state status;
+};
+
+/**
+ * struct device - The basic device structure
+ * @parent:	The device's "parent" device, the device to which it is attached.
+ * 		In most cases, a parent device is some sort of bus or host
+ * 		controller. If parent is NULL, the device, is a top-level device,
+ * 		which is not usually what you want.
+ * @p:		Holds the private data of the driver core portions of the device.
+ * 		See the comment of the struct device_private for detail.
+ * @kobj:	A top-level, abstract class from which other classes are derived.
+ * @init_name:	Initial name of the device.
+ * @type:	The type of device.
+ * 		This identifies the device type and carries type-specific
+ * 		information.
+ * @mutex:	Mutex to synchronize calls to its driver.
+ * @bus:	Type of bus device is on.
+ * @driver:	Which driver has allocated this
+ * @platform_data: Platform data specific to the device.
+ * 		Example: For devices on custom boards, as typical of embedded
+ * 		and SOC based hardware, Linux often uses platform_data to point
+ * 		to board-specific structures describing devices and how they
+ * 		are wired.  That can include what ports are available, chip
+ * 		variants, which GPIO pins act in what additional roles, and so
+ * 		on.  This shrinks the "Board Support Packages" (BSPs) and
+ * 		minimizes board-specific #ifdefs in drivers.
+ * @driver_data: Private pointer for driver specific info.
+ * @power:	For device power management.
+ * 		See Documentation/power/devices.txt for details.
+ * @pm_domain:	Provide callbacks that are executed during system suspend,
+ * 		hibernation, system resume and during runtime PM transitions
+ * 		along with subsystem-level and driver-level callbacks.
+ * @pins:	For device pin management.
+ *		See Documentation/pinctrl.txt for details.
+ * @msi_list:	Hosts MSI descriptors
+ * @msi_domain: The generic MSI domain this device is using.
+ * @numa_node:	NUMA node this device is close to.
+ * @dma_mask:	Dma mask (if dma'ble device).
+ * @coherent_dma_mask: Like dma_mask, but for alloc_coherent mapping as not all
+ * 		hardware supports 64-bit addresses for consistent allocations
+ * 		such descriptors.
+ * @dma_pfn_offset: offset of DMA memory range relatively of RAM
+ * @dma_parms:	A low level driver may set these to teach IOMMU code about
+ * 		segment limitations.
+ * @dma_pools:	Dma pools (if dma'ble device).
+ * @dma_mem:	Internal for coherent mem override.
+ * @cma_area:	Contiguous memory area for dma allocations
+ * @archdata:	For arch-specific additions.
+ * @of_node:	Associated device tree node.
+ * @fwnode:	Associated device node supplied by platform firmware.
+ * @devt:	For creating the sysfs "dev".
+ * @id:		device instance
+ * @devres_lock: Spinlock to protect the resource of the device.
+ * @devres_head: The resources list of the device.
+ * @knode_class: The node used to add the device to the class list.
+ * @class:	The class of the device.
+ * @groups:	Optional attribute groups.
+ * @release:	Callback to free the device after all references have
+ * 		gone away. This should be set by the allocator of the
+ * 		device (i.e. the bus driver that discovered the device).
+ * @iommu_group: IOMMU group the device belongs to.
+ * @iommu_fwspec: IOMMU-specific properties supplied by firmware.
+ *
+ * @offline_disabled: If set, the device is permanently online.
+ * @offline:	Set after successful invocation of bus type's .offline().
+ *
+ * At the lowest level, every device in a Linux system is represented by an
+ * instance of struct device. The device structure contains the information
+ * that the device model core needs to model the system. Most subsystems,
+ * however, track additional information about the devices they host. As a
+ * result, it is rare for devices to be represented by bare device structures;
+ * instead, that structure, like kobject structures, is usually embedded within
+ * a higher-level representation of the device.
+ */
+struct device {
+	struct device		*parent;
+
+	struct device_private	*p;
+
+	struct kobject kobj;
+	const char		*init_name; /* initial name of the device */
+	const struct device_type *type;
+
+	struct mutex		mutex;	/* mutex to synchronize calls to
+					 * its driver.
+					 */
+
+	struct bus_type	*bus;		/* type of bus device is on */
+	struct device_driver *driver;	/* which driver has allocated this
+					   device */
+	void		*platform_data;	/* Platform specific data, device
+					   core doesn't touch it */
+	void		*driver_data;	/* Driver data, set and get with
+					   dev_set/get_drvdata */
+	struct dev_links_info	links;
+	struct dev_pm_info	power;
+	struct dev_pm_domain	*pm_domain;
+
+#ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
+	struct irq_domain	*msi_domain;
+#endif
+#ifdef CONFIG_PINCTRL
+	struct dev_pin_info	*pins;  //表示一个设备的pinctrl 信息
+#endif
+#ifdef CONFIG_GENERIC_MSI_IRQ
+	struct list_head	msi_list;
+#endif
+
+#ifdef CONFIG_NUMA
+	int		numa_node;	/* NUMA node this device is close to */
+#endif
+	u64		*dma_mask;	/* dma mask (if dma'able device) */
+	u64		coherent_dma_mask;/* Like dma_mask, but for
+					     alloc_coherent mappings as
+					     not all hardware supports
+					     64 bit addresses for consistent
+					     allocations such descriptors. */
+	unsigned long	dma_pfn_offset;
+
+	struct device_dma_parameters *dma_parms;
+
+	struct list_head	dma_pools;	/* dma pools (if dma'ble) */
+
+	struct dma_coherent_mem	*dma_mem; /* internal for coherent mem
+					     override */
+#ifdef CONFIG_DMA_CMA
+	struct cma *cma_area;		/* contiguous memory area for dma
+					   allocations */
+#endif
+	/* arch specific additions */
+	struct dev_archdata	archdata;
+
+	struct device_node	*of_node; /* associated device tree node */
+	struct fwnode_handle	*fwnode; /* firmware device node */
+
+	dev_t			devt;	/* dev_t, creates the sysfs "dev" */
+	u32			id;	/* device instance */
+
+	spinlock_t		devres_lock;
+	struct list_head	devres_head;
+
+	struct klist_node	knode_class;
+	struct class		*class;
+	const struct attribute_group **groups;	/* optional groups */
+
+	void	(*release)(struct device *dev);
+	struct iommu_group	*iommu_group;
+	struct iommu_fwspec	*iommu_fwspec;
+
+	bool			offline_disabled:1;
+	bool			offline:1;
+};
+
+static inline struct device *kobj_to_dev(struct kobject *kobj)
+{
+	return container_of(kobj, struct device, kobj);
+}
+
+/* Get the wakeup routines, which depend on struct device */
+#include <linux/pm_wakeup.h>
+
+static inline const char *dev_name(const struct device *dev)
+{
+	/* Use the init name until the kobject becomes available */
+	if (dev->init_name)
+		return dev->init_name;
+
+	return kobject_name(&dev->kobj);
+}
+
+extern __printf(2, 3)
+int dev_set_name(struct device *dev, const char *name, ...);
+
+#ifdef CONFIG_NUMA
+static inline int dev_to_node(struct device *dev)
+{
+	return dev->numa_node;
+}
+static inline void set_dev_node(struct device *dev, int node)
+{
+	dev->numa_node = node;
+}
+#else
+static inline int dev_to_node(struct device *dev)
+{
+	return -1;
+}
+static inline void set_dev_node(struct device *dev, int node)
+{
+}
+#endif
+
+static inline struct irq_domain *dev_get_msi_domain(const struct device *dev)
+{
+#ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
+	return dev->msi_domain;
+#else
+	return NULL;
+#endif
+}
+
+static inline void dev_set_msi_domain(struct device *dev, struct irq_domain *d)
+{
+#ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
+	dev->msi_domain = d;
+#endif
+}
+
+static inline void *dev_get_drvdata(const struct device *dev)
+{
+	return dev->driver_data;
+}
+
+static inline void dev_set_drvdata(struct device *dev, void *data)
+{
+	dev->driver_data = data;
+}
+
+static inline struct pm_subsys_data *dev_to_psd(struct device *dev)
+{
+	return dev ? dev->power.subsys_data : NULL;
+}
+
+static inline unsigned int dev_get_uevent_suppress(const struct device *dev)
+{
+	return dev->kobj.uevent_suppress;
+}
+
+static inline void dev_set_uevent_suppress(struct device *dev, int val)
+{
+	dev->kobj.uevent_suppress = val;
+}
+
+static inline int device_is_registered(struct device *dev)
+{
+	return dev->kobj.state_in_sysfs;
+}
+
+static inline void device_enable_async_suspend(struct device *dev)
+{
+	if (!dev->power.is_prepared)
+		dev->power.async_suspend = true;
+}
+
+static inline void device_disable_async_suspend(struct device *dev)
+{
+	if (!dev->power.is_prepared)
+		dev->power.async_suspend = false;
+}
+
+static inline bool device_async_suspend_enabled(struct device *dev)
+{
+	return !!dev->power.async_suspend;
+}
+
+static inline void dev_pm_syscore_device(struct device *dev, bool val)
+{
+#ifdef CONFIG_PM_SLEEP
+	dev->power.syscore = val;
+#endif
+}
+
+static inline void device_lock(struct device *dev)
+{
+	mutex_lock(&dev->mutex);
+}
+
+static inline int device_lock_interruptible(struct device *dev)
+{
+	return mutex_lock_interruptible(&dev->mutex);
+}
+
+static inline int device_trylock(struct device *dev)
+{
+	return mutex_trylock(&dev->mutex);
+}
+
+static inline void device_unlock(struct device *dev)
+{
+	mutex_unlock(&dev->mutex);
+}
+
+static inline void device_lock_assert(struct device *dev)
+{
+	lockdep_assert_held(&dev->mutex);
+}
+
+static inline struct device_node *dev_of_node(struct device *dev)
+{
+	if (!IS_ENABLED(CONFIG_OF))
+		return NULL;
+	return dev->of_node;
+}
+
+void driver_init(void);
+
+/*
+ * High level routines for use by the bus drivers
+ */
+extern int __must_check device_register(struct device *dev);
+extern void device_unregister(struct device *dev);
+extern void device_initialize(struct device *dev);
+extern int __must_check device_add(struct device *dev);
+extern void device_del(struct device *dev);
+extern int device_for_each_child(struct device *dev, void *data,
+		     int (*fn)(struct device *dev, void *data));
+extern int device_for_each_child_reverse(struct device *dev, void *data,
+		     int (*fn)(struct device *dev, void *data));
+extern struct device *device_find_child(struct device *dev, void *data,
+				int (*match)(struct device *dev, void *data));
+extern int device_rename(struct device *dev, const char *new_name);
+extern int device_move(struct device *dev, struct device *new_parent,
+		       enum dpm_order dpm_order);
+extern const char *device_get_devnode(struct device *dev,
+				      umode_t *mode, kuid_t *uid, kgid_t *gid,
+				      const char **tmp);
+
+static inline bool device_supports_offline(struct device *dev)
+{
+	return dev->bus && dev->bus->offline && dev->bus->online;
+}
+
+extern void lock_device_hotplug(void);
+extern void unlock_device_hotplug(void);
+extern int lock_device_hotplug_sysfs(void);
+extern int device_offline(struct device *dev);
+extern int device_online(struct device *dev);
+extern void set_primary_fwnode(struct device *dev, struct fwnode_handle *fwnode);
+extern void set_secondary_fwnode(struct device *dev, struct fwnode_handle *fwnode);
+
+/*
+ * Root device objects for grouping under /sys/devices
+ */
+extern struct device *__root_device_register(const char *name,
+					     struct module *owner);
+
+/* This is a macro to avoid include problems with THIS_MODULE */
+#define root_device_register(name) \
+	__root_device_register(name, THIS_MODULE)
+
+extern void root_device_unregister(struct device *root);
+
+static inline void *dev_get_platdata(const struct device *dev)
+{
+	return dev->platform_data;
+}
+
+/*
+ * Manual binding of a device to driver. See drivers/base/bus.c
+ * for information on use.
+ */
+extern int __must_check device_bind_driver(struct device *dev);
+extern void device_release_driver(struct device *dev);
+extern int  __must_check device_attach(struct device *dev);
+extern int __must_check driver_attach(struct device_driver *drv);
+extern void device_initial_probe(struct device *dev);
+extern int __must_check device_reprobe(struct device *dev);
+
+extern bool device_is_bound(struct device *dev);
+
+/*
+ * Easy functions for dynamically creating devices on the fly
+ */
+extern __printf(5, 0)
+struct device *device_create_vargs(struct class *cls, struct device *parent,
+				   dev_t devt, void *drvdata,
+				   const char *fmt, va_list vargs);
+extern __printf(5, 6)
+struct device *device_create(struct class *cls, struct device *parent,
+			     dev_t devt, void *drvdata,
+			     const char *fmt, ...);
+extern __printf(6, 7)
+struct device *device_create_with_groups(struct class *cls,
+			     struct device *parent, dev_t devt, void *drvdata,
+			     const struct attribute_group **groups,
+			     const char *fmt, ...);
+extern void device_destroy(struct class *cls, dev_t devt);
+
+/*
+ * Platform "fixup" functions - allow the platform to have their say
+ * about devices and actions that the general device layer doesn't
+ * know about.
+ */
+/* Notify platform of device discovery */
+extern int (*platform_notify)(struct device *dev);
+
+extern int (*platform_notify_remove)(struct device *dev);
+
+
+/*
+ * get_device - atomically increment the reference count for the device.
+ *
+ */
+extern struct device *get_device(struct device *dev);
+extern void put_device(struct device *dev);
+
+#ifdef CONFIG_DEVTMPFS
+extern int devtmpfs_create_node(struct device *dev);
+extern int devtmpfs_delete_node(struct device *dev);
+extern int devtmpfs_mount(const char *mntdir);
+#else
+static inline int devtmpfs_create_node(struct device *dev) { return 0; }
+static inline int devtmpfs_delete_node(struct device *dev) { return 0; }
+static inline int devtmpfs_mount(const char *mountpoint) { return 0; }
+#endif
+
+/* drivers/base/power/shutdown.c */
+extern void device_shutdown(void);
+
+/* debugging and troubleshooting/diagnostic helpers. */
+extern const char *dev_driver_string(const struct device *dev);
+
+/* Device links interface. */
+struct device_link *device_link_add(struct device *consumer,
+				    struct device *supplier, u32 flags);
+void device_link_del(struct device_link *link);
+
+#ifdef CONFIG_PRINTK
+
+extern __printf(3, 0)
+int dev_vprintk_emit(int level, const struct device *dev,
+		     const char *fmt, va_list args);
+extern __printf(3, 4)
+int dev_printk_emit(int level, const struct device *dev, const char *fmt, ...);
+
+extern __printf(3, 4)
+void dev_printk(const char *level, const struct device *dev,
+		const char *fmt, ...);
+extern __printf(2, 3)
+void dev_emerg(const struct device *dev, const char *fmt, ...);
+extern __printf(2, 3)
+void dev_alert(const struct device *dev, const char *fmt, ...);
+extern __printf(2, 3)
+void dev_crit(const struct device *dev, const char *fmt, ...);
+extern __printf(2, 3)
+void dev_err(const struct device *dev, const char *fmt, ...);
+extern __printf(2, 3)
+void dev_warn(const struct device *dev, const char *fmt, ...);
+extern __printf(2, 3)
+void dev_notice(const struct device *dev, const char *fmt, ...);
+extern __printf(2, 3)
+void _dev_info(const struct device *dev, const char *fmt, ...);
+
+#else
+
+static inline __printf(3, 0)
+int dev_vprintk_emit(int level, const struct device *dev,
+		     const char *fmt, va_list args)
+{ return 0; }
+static inline __printf(3, 4)
+int dev_printk_emit(int level, const struct device *dev, const char *fmt, ...)
+{ return 0; }
+
+static inline void __dev_printk(const char *level, const struct device *dev,
+				struct va_format *vaf)
+{}
+static inline __printf(3, 4)
+void dev_printk(const char *level, const struct device *dev,
+		const char *fmt, ...)
+{}
+
+static inline __printf(2, 3)
+void dev_emerg(const struct device *dev, const char *fmt, ...)
+{}
+static inline __printf(2, 3)
+void dev_crit(const struct device *dev, const char *fmt, ...)
+{}
+static inline __printf(2, 3)
+void dev_alert(const struct device *dev, const char *fmt, ...)
+{}
+static inline __printf(2, 3)
+void dev_err(const struct device *dev, const char *fmt, ...)
+{}
+static inline __printf(2, 3)
+void dev_warn(const struct device *dev, const char *fmt, ...)
+{}
+static inline __printf(2, 3)
+void dev_notice(const struct device *dev, const char *fmt, ...)
+{}
+static inline __printf(2, 3)
+void _dev_info(const struct device *dev, const char *fmt, ...)
+{}
+
+#endif
+
+/*
+ * Stupid hackaround for existing uses of non-printk uses dev_info
+ *
+ * Note that the definition of dev_info below is actually _dev_info
+ * and a macro is used to avoid redefining dev_info
+ */
+
+#define dev_info(dev, fmt, arg...) _dev_info(dev, fmt, ##arg)
+
+#if defined(CONFIG_DYNAMIC_DEBUG)
+#define dev_dbg(dev, format, ...)		     \
+do {						     \
+	dynamic_dev_dbg(dev, format, ##__VA_ARGS__); \
+} while (0)
+#elif defined(DEBUG)
+#define dev_dbg(dev, format, arg...)		\
+	dev_printk(KERN_DEBUG, dev, format, ##arg)
+#else
+#define dev_dbg(dev, format, arg...)				\
+({								\
+	if (0)							\
+		dev_printk(KERN_DEBUG, dev, format, ##arg);	\
+})
+#endif
+
+#ifdef CONFIG_PRINTK
+#define dev_level_once(dev_level, dev, fmt, ...)			\
+do {									\
+	static bool __print_once __read_mostly;				\
+									\
+	if (!__print_once) {						\
+		__print_once = true;					\
+		dev_level(dev, fmt, ##__VA_ARGS__);			\
+	}								\
+} while (0)
+#else
+#define dev_level_once(dev_level, dev, fmt, ...)			\
+do {									\
+	if (0)								\
+		dev_level(dev, fmt, ##__VA_ARGS__);			\
+} while (0)
+#endif
+
+#define dev_emerg_once(dev, fmt, ...)					\
+	dev_level_once(dev_emerg, dev, fmt, ##__VA_ARGS__)
+#define dev_alert_once(dev, fmt, ...)					\
+	dev_level_once(dev_alert, dev, fmt, ##__VA_ARGS__)
+#define dev_crit_once(dev, fmt, ...)					\
+	dev_level_once(dev_crit, dev, fmt, ##__VA_ARGS__)
+#define dev_err_once(dev, fmt, ...)					\
+	dev_level_once(dev_err, dev, fmt, ##__VA_ARGS__)
+#define dev_warn_once(dev, fmt, ...)					\
+	dev_level_once(dev_warn, dev, fmt, ##__VA_ARGS__)
+#define dev_notice_once(dev, fmt, ...)					\
+	dev_level_once(dev_notice, dev, fmt, ##__VA_ARGS__)
+#define dev_info_once(dev, fmt, ...)					\
+	dev_level_once(dev_info, dev, fmt, ##__VA_ARGS__)
+#define dev_dbg_once(dev, fmt, ...)					\
+	dev_level_once(dev_dbg, dev, fmt, ##__VA_ARGS__)
+
+#define dev_level_ratelimited(dev_level, dev, fmt, ...)			\
+do {									\
+	static DEFINE_RATELIMIT_STATE(_rs,				\
+				      DEFAULT_RATELIMIT_INTERVAL,	\
+				      DEFAULT_RATELIMIT_BURST);		\
+	if (__ratelimit(&_rs))						\
+		dev_level(dev, fmt, ##__VA_ARGS__);			\
+} while (0)
+
+#define dev_emerg_ratelimited(dev, fmt, ...)				\
+	dev_level_ratelimited(dev_emerg, dev, fmt, ##__VA_ARGS__)
+#define dev_alert_ratelimited(dev, fmt, ...)				\
+	dev_level_ratelimited(dev_alert, dev, fmt, ##__VA_ARGS__)
+#define dev_crit_ratelimited(dev, fmt, ...)				\
+	dev_level_ratelimited(dev_crit, dev, fmt, ##__VA_ARGS__)
+#define dev_err_ratelimited(dev, fmt, ...)				\
+	dev_level_ratelimited(dev_err, dev, fmt, ##__VA_ARGS__)
+#define dev_warn_ratelimited(dev, fmt, ...)				\
+	dev_level_ratelimited(dev_warn, dev, fmt, ##__VA_ARGS__)
+#define dev_notice_ratelimited(dev, fmt, ...)				\
+	dev_level_ratelimited(dev_notice, dev, fmt, ##__VA_ARGS__)
+#define dev_info_ratelimited(dev, fmt, ...)				\
+	dev_level_ratelimited(dev_info, dev, fmt, ##__VA_ARGS__)
+#if defined(CONFIG_DYNAMIC_DEBUG)
+/* descriptor check is first to prevent flooding with "callbacks suppressed" */
+#define dev_dbg_ratelimited(dev, fmt, ...)				\
+do {									\
+	static DEFINE_RATELIMIT_STATE(_rs,				\
+				      DEFAULT_RATELIMIT_INTERVAL,	\
+				      DEFAULT_RATELIMIT_BURST);		\
+	DEFINE_DYNAMIC_DEBUG_METADATA(descriptor, fmt);			\
+	if (unlikely(descriptor.flags & _DPRINTK_FLAGS_PRINT) &&	\
+	    __ratelimit(&_rs))						\
+		__dynamic_dev_dbg(&descriptor, dev, fmt,		\
+				  ##__VA_ARGS__);			\
+} while (0)
+#elif defined(DEBUG)
+#define dev_dbg_ratelimited(dev, fmt, ...)				\
+do {									\
+	static DEFINE_RATELIMIT_STATE(_rs,				\
+				      DEFAULT_RATELIMIT_INTERVAL,	\
+				      DEFAULT_RATELIMIT_BURST);		\
+	if (__ratelimit(&_rs))						\
+		dev_printk(KERN_DEBUG, dev, fmt, ##__VA_ARGS__);	\
+} while (0)
+#else
+#define dev_dbg_ratelimited(dev, fmt, ...)				\
+do {									\
+	if (0)								\
+		dev_printk(KERN_DEBUG, dev, fmt, ##__VA_ARGS__);	\
+} while (0)
+#endif
+
+#ifdef VERBOSE_DEBUG
+#define dev_vdbg	dev_dbg
+#else
+#define dev_vdbg(dev, format, arg...)				\
+({								\
+	if (0)							\
+		dev_printk(KERN_DEBUG, dev, format, ##arg);	\
+})
+#endif
+
+/*
+ * dev_WARN*() acts like dev_printk(), but with the key difference of
+ * using WARN/WARN_ONCE to include file/line information and a backtrace.
+ */
+#define dev_WARN(dev, format, arg...) \
+	WARN(1, "%s %s: " format, dev_driver_string(dev), dev_name(dev), ## arg);
+
+#define dev_WARN_ONCE(dev, condition, format, arg...) \
+	WARN_ONCE(condition, "%s %s: " format, \
+			dev_driver_string(dev), dev_name(dev), ## arg)
+
+/* Create alias, so I can be autoloaded. */
+#define MODULE_ALIAS_CHARDEV(major,minor) \
+	MODULE_ALIAS("char-major-" __stringify(major) "-" __stringify(minor))
+#define MODULE_ALIAS_CHARDEV_MAJOR(major) \
+	MODULE_ALIAS("char-major-" __stringify(major) "-*")
+
+#ifdef CONFIG_SYSFS_DEPRECATED
+extern long sysfs_deprecated;
+#else
+#define sysfs_deprecated 0
+#endif
+
+/**
+ * module_driver() - Helper macro for drivers that don't do anything
+ * special in module init/exit. This eliminates a lot of boilerplate.
+ * Each module may only use this macro once, and calling it replaces
+ * module_init() and module_exit().
+ *
+ * @__driver: driver name
+ * @__register: register function for this driver type
+ * @__unregister: unregister function for this driver type
+ * @...: Additional arguments to be passed to __register and __unregister.
+ *
+ * Use this macro to construct bus specific macros for registering
+ * drivers, and do not use it on its own.
+ */
+#define module_driver(__driver, __register, __unregister, ...) \
+static int __init __driver##_init(void) \
+{ \
+	return __register(&(__driver) , ##__VA_ARGS__); \
+} \
+module_init(__driver##_init); \
+static void __exit __driver##_exit(void) \
+{ \
+	__unregister(&(__driver) , ##__VA_ARGS__); \
+} \
+module_exit(__driver##_exit);
+
+/**
+ * builtin_driver() - Helper macro for drivers that don't do anything
+ * special in init and have no exit. This eliminates some boilerplate.
+ * Each driver may only use this macro once, and calling it replaces
+ * device_initcall (or in some cases, the legacy __initcall).  This is
+ * meant to be a direct parallel of module_driver() above but without
+ * the __exit stuff that is not used for builtin cases.
+ *
+ * @__driver: driver name
+ * @__register: register function for this driver type
+ * @...: Additional arguments to be passed to __register
+ *
+ * Use this macro to construct bus specific macros for registering
+ * drivers, and do not use it on its own.
+ */
+#define builtin_driver(__driver, __register, ...) \
+static int __init __driver##_init(void) \
+{ \
+	return __register(&(__driver) , ##__VA_ARGS__); \
+} \
+device_initcall(__driver##_init);
+
+#endif /* _DEVICE_H_ */
