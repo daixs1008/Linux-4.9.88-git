@@ -1430,7 +1430,7 @@ static int gtp_pinctrl_init(struct goodix_ts_data *ts)
 		return 0;
 	}
 
-	pinctrl->default_sta = pinctrl_lookup_state(pinctrl->pinctrl,
+	pinctrl->default_sta = pinctrl_lookup_state(pinctrl->pinctrl,  //获取 pinctrl 的值
 						    "default");
 	if (IS_ERR_OR_NULL(pinctrl->default_sta)) {
 		dev_info(&ts->client->dev,
@@ -1539,7 +1539,7 @@ static int gtp_request_irq(struct goodix_ts_data *ts)
 		dev_info(&ts->client->dev, "INT num %d, trigger type:%d\n",
 			 ts->client->irq, ts->pdata->irq_flags);
 		ret = request_threaded_irq(ts->client->irq, NULL,   //使用线程化的函数申请中断
-				gtp_irq_handler,
+				gtp_irq_handler,                           //中断处理函数
 				ts->pdata->irq_flags | IRQF_ONESHOT,
 				ts->client->name,
 				ts);
@@ -1693,59 +1693,59 @@ static int gtp_parse_dt(struct device *dev,
 
 	gtp_parse_dt_coords(dev, pdata);
 
-	ret = of_property_read_u32(np, "irq-flags",
+	ret = of_property_read_u32(np, "irq-flags",   //  irq-flags = <2>;
 				   &pdata->irq_flags);
 	if (ret) {
 		dev_info(dev,
 			 "Failed get int-trigger-type from dts,set default\n");
 		pdata->irq_flags = GTP_DEFAULT_INT_TRIGGER;
 	}
-	of_property_read_u32(np, "goodix,int-sync", &pdata->int_sync);
+	of_property_read_u32(np, "goodix,int-sync", &pdata->int_sync);  //  goodix,int-sync = <0>;
 	if (pdata->int_sync)
 		dev_info(dev, "int-sync enabled\n");
 
-	of_property_read_u32(np, "goodix,driver-send-cfg",
+	of_property_read_u32(np, "goodix,driver-send-cfg",  //goodix,driver-send-cfg = <0>;
 			     &pdata->driver_send_cfg);
 	if (pdata->driver_send_cfg)
-		dev_info(dev, "driver-send-cfg enabled\n");
+		dev_info(dev, "driver-send-cfg enabled\n");  
 
-	of_property_read_u32(np, "goodix,swap-x2y", &pdata->swap_x2y);
+	of_property_read_u32(np, "goodix,swap-x2y", &pdata->swap_x2y);  //goodix,swap-x2y = <0>;
 	if (pdata->swap_x2y)
 		dev_info(dev, "swap-x2y enabled\n");
 
-	of_property_read_u32(np, "goodix,slide-wakeup", &pdata->slide_wakeup);
+	of_property_read_u32(np, "goodix,slide-wakeup", &pdata->slide_wakeup);  //
 	if (pdata->slide_wakeup)
 		dev_info(dev, "slide-wakeup enabled\n");
 
-	of_property_read_u32(np, "goodix,auto-update", &pdata->auto_update);
+	of_property_read_u32(np, "goodix,auto-update", &pdata->auto_update);  //  goodix,auto-update = <0>;
 	if (pdata->auto_update)
 		dev_info(dev, "auto-update enabled\n");
 
-	of_property_read_u32(np, "goodix,auto-update-cfg",
+	of_property_read_u32(np, "goodix,auto-update-cfg",   //  goodix,auto-update-cfg = <0>;
 			     &pdata->auto_update_cfg);
 	if (pdata->auto_update_cfg)
 		dev_info(dev, "auto-update-cfg enabled\n");
 
-	of_property_read_u32(np, "goodix,esd-protect", &pdata->esd_protect);
+	of_property_read_u32(np, "goodix,esd-protect", &pdata->esd_protect);  //goodix,esd-protect = <0>;
 	if (pdata->esd_protect)
 		dev_info(dev, "esd-protect enabled\n");
 
-	of_property_read_u32(np, "goodix,type-a-report",
+	of_property_read_u32(np, "goodix,type-a-report",   //goodix,type-a-report = <0>;
 			     &pdata->type_a_report);
 	if (pdata->type_a_report)
 		dev_info(dev, "type-a-report enabled\n");
 
-	of_property_read_u32(np, "goodix,resume-in-workqueue",
+	of_property_read_u32(np, "goodix,resume-in-workqueue",  //goodix,resume-in-workqueue = <0>;
 			     &pdata->resume_in_workqueue);
 	if (pdata->resume_in_workqueue)
 		dev_info(dev, "resume-in-workqueue enabled\n");
 
-	of_property_read_u32(np, "goodix,power-off-sleep",
+	of_property_read_u32(np, "goodix,power-off-sleep",   // goodix,power-off-sleep = <0>;
 			     &pdata->power_off_sleep);
 	if (pdata->power_off_sleep)
 		dev_info(dev, "power-off-sleep enabled\n");
 
-	of_property_read_u32(np, "goodix,pen-suppress-finger",
+	of_property_read_u32(np, "goodix,pen-suppress-finger",  //goodix,pen-suppress-finger = <0>;
 			     &pdata->pen_suppress_finger);
 	if (pdata->pen_suppress_finger)
 		dev_info(dev, "pen-suppress-finger enabled\n");
@@ -1773,11 +1773,11 @@ static int gtp_parse_dt(struct device *dev,
 			 pdata->key_map[2], pdata->key_map[3]);
 	}
 
-	pdata->irq_gpio = of_get_named_gpio(np, "irq-gpios", 0);
+	pdata->irq_gpio = of_get_named_gpio(np, "irq-gpios", 0);  //irq-gpios = <&gpio1 5 IRQ_TYPE_EDGE_FALLING>;
 	if (!gpio_is_valid(pdata->irq_gpio))
 		dev_err(dev, "No valid irq gpio");
 
-	pdata->rst_gpio = of_get_named_gpio(np, "reset-gpios", 0);
+	pdata->rst_gpio = of_get_named_gpio(np, "reset-gpios", 0);  //复位管脚  reset-gpios = <&gpio5 2 GPIO_ACTIVE_LOW>;
 	if (!gpio_is_valid(pdata->rst_gpio))
 		dev_err(dev, "No valid rst gpio");
 
@@ -1949,7 +1949,7 @@ static int gtp_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	dev_info(&client->dev, "GTP I2C Address: 0x%02x\n", client->addr);
 
 	i2c_connect_client = client;
-	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {  //检测是否可用
 		dev_err(&client->dev, "Failed check I2C functionality");
 		return -ENODEV;
 	}
@@ -1971,7 +1971,7 @@ static int gtp_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 #ifdef CONFIG_OF
 	if (client->dev.of_node) {
-		ret = gtp_parse_dt(&client->dev, pdata);
+		ret = gtp_parse_dt(&client->dev, pdata);  //解析设备树
 		if (ret) {
 			dev_err(&client->dev, "Failed parse dts\n");
 			goto exit_free_client_data;
@@ -1996,7 +1996,7 @@ static int gtp_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	ts->client = client;
 	ts->pdata = pdata;
 
-	i2c_set_clientdata(client, ts);
+	i2c_set_clientdata(client, ts); // -->client->driver_data = ts;
 
 	ret = gtp_power_init(ts);
 	if (ret) {
@@ -2053,7 +2053,7 @@ static int gtp_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	pdata->config.data[0] = GTP_REG_CONFIG_DATA >> 8;
 	pdata->config.data[1] = GTP_REG_CONFIG_DATA & 0xff;
-	ret = gtp_init_panel(ts);
+	ret = gtp_init_panel(ts);     //初始化 gtp 
 	if (ret < 0)
 		dev_info(&client->dev, "Panel un-initialize\n");
 
@@ -2071,7 +2071,7 @@ static int gtp_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		goto exit_free_io_port;
 	}
 
-	mutex_init(&ts->lock);
+	mutex_init(&ts->lock);  //初始化 互斥锁
 
 	ret = gtp_request_irq(ts);  //中断设置
 	if (ret < 0) {
@@ -2102,7 +2102,7 @@ static int gtp_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	gtp_esd_on(ts);
 	/* probe init finished */
 	ts->init_done = true;
-	gtp_work_control_enable(ts, true);
+	gtp_work_control_enable(ts, true);//使能设备
 
 	return 0;
 
@@ -2429,7 +2429,7 @@ static int gtp_init_ext_watchdog(struct i2c_client *client)
 	return -EINVAL;
 }
 
-static void gtp_esd_check_func(struct work_struct *work)
+static void gtp_esd_check_func(struct work_struct *work)   //触摸屏数据处理的队列
 {
 	s32 i;
 	s32 ret = -1;
@@ -2506,7 +2506,7 @@ static int gtp_esd_init(struct goodix_ts_data *ts)
 {
 	struct goodix_ts_esd *ts_esd = &ts->ts_esd;
 
-	INIT_DELAYED_WORK(&ts_esd->delayed_work, gtp_esd_check_func);
+	INIT_DELAYED_WORK(&ts_esd->delayed_work, gtp_esd_check_func);  //初始化工作队列，，  处理函数：  gtp_esd_check_func
 	mutex_init(&ts_esd->mutex);
 	ts_esd->esd_on = false;
 
@@ -2522,7 +2522,7 @@ void gtp_esd_on(struct goodix_ts_data *ts)
 	mutex_lock(&ts_esd->mutex);
 	if (ts_esd->esd_on == false) {
 		ts_esd->esd_on = true;
-		schedule_delayed_work(&ts_esd->delayed_work, 2 * HZ);
+		schedule_delayed_work(&ts_esd->delayed_work, 2 * HZ);  //延时调度工作队列
 		dev_info(&ts->client->dev, "ESD on");
 	}
 	mutex_unlock(&ts_esd->mutex);

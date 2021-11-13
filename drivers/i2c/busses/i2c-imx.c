@@ -573,7 +573,7 @@ static void i2c_imx_stop(struct imx_i2c_struct *i2c_imx)
 	imx_i2c_write_reg(temp, i2c_imx, IMX_I2C_I2CR);
 }
 
-static irqreturn_t i2c_imx_isr(int irq, void *dev_id)
+static irqreturn_t i2c_imx_isr(int irq, void *dev_id)　//
 {
 	struct imx_i2c_struct *i2c_imx = dev_id;
 	unsigned int temp;
@@ -1065,52 +1065,52 @@ static int i2c_imx_probe(struct platform_device *pdev)
 
 	dev_dbg(&pdev->dev, "<%s>\n", __func__);
 
-	irq = platform_get_irq(pdev, 0);
+	irq = platform_get_irq(pdev, 0); //获取中断号
 	if (irq < 0) {
 		dev_err(&pdev->dev, "can't get irq number\n");
 		return irq;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	base = devm_ioremap_resource(&pdev->dev, res);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0); //获取设备IO资源
+	base = devm_ioremap_resource(&pdev->dev, res);  //映射到虚拟内存
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 
 	phy_addr = (dma_addr_t)res->start;
-	i2c_imx = devm_kzalloc(&pdev->dev, sizeof(*i2c_imx), GFP_KERNEL);
+	i2c_imx = devm_kzalloc(&pdev->dev, sizeof(*i2c_imx), GFP_KERNEL);  //分配设备内存资源
 	if (!i2c_imx)
 		return -ENOMEM;
 
 	if (of_id)
-		i2c_imx->hwdata = of_id->data;
+		i2c_imx->hwdata = of_id->data;  //如果有id 就赋值给 i2c_imx->hwdata
 	else
-		i2c_imx->hwdata = (struct imx_i2c_hwdata *)
+		i2c_imx->hwdata = (struct imx_i2c_hwdata *)  //如果没有就从设备驱动的私有数据中获取
 				platform_get_device_id(pdev)->driver_data;
 
-	/* Setup i2c_imx driver structure */
+	/* Setup i2c_imx driver structure 设置驱动器结构体*/
 	strlcpy(i2c_imx->adapter.name, pdev->name, sizeof(i2c_imx->adapter.name));
 	i2c_imx->adapter.owner		= THIS_MODULE;
 	i2c_imx->adapter.algo		= &i2c_imx_algo;
 	i2c_imx->adapter.dev.parent	= &pdev->dev;
 	i2c_imx->adapter.nr		= pdev->id;
 	i2c_imx->adapter.dev.of_node	= pdev->dev.of_node;
-	i2c_imx->base			= base;
+	i2c_imx->base			= base;  //虚拟地址
 
 	/* Get I2C clock */
-	i2c_imx->clk = devm_clk_get(&pdev->dev, NULL);
+	i2c_imx->clk = devm_clk_get(&pdev->dev, NULL);  //获取时钟
 	if (IS_ERR(i2c_imx->clk)) {
 		dev_err(&pdev->dev, "can't get I2C clock\n");
 		return PTR_ERR(i2c_imx->clk);
 	}
 
-	ret = clk_prepare_enable(i2c_imx->clk);
+	ret = clk_prepare_enable(i2c_imx->clk);  //解析并使能时钟
 	if (ret) {
 		dev_err(&pdev->dev, "can't enable I2C clock, ret=%d\n", ret);
 		return ret;
 	}
 
 	/* Request IRQ */
-	ret = devm_request_irq(&pdev->dev, irq, i2c_imx_isr,
+	ret = devm_request_irq(&pdev->dev, irq, i2c_imx_isr,  //注册中处理函数 i2c_imx_isr
 			       IRQF_NO_SUSPEND, pdev->name, i2c_imx);
 	if (ret) {
 		dev_err(&pdev->dev, "can't claim irq %d\n", irq);
@@ -1118,7 +1118,7 @@ static int i2c_imx_probe(struct platform_device *pdev)
 	}
 
 	/* Init queue */
-	init_waitqueue_head(&i2c_imx->queue);
+	init_waitqueue_head(&i2c_imx->queue);  //初始化 队列
 
 	/* Set up adapter data */
 	i2c_set_adapdata(&i2c_imx->adapter, i2c_imx);
@@ -1154,12 +1154,12 @@ static int i2c_imx_probe(struct platform_device *pdev)
 		goto rpm_disable;
 
 	/* Add I2C adapter */
-	ret = i2c_add_numbered_adapter(&i2c_imx->adapter);
+	ret = i2c_add_numbered_adapter(&i2c_imx->adapter);  //增加一个adapter 
 	if (ret < 0)
 		goto rpm_disable;
 
-	pm_runtime_mark_last_busy(&pdev->dev);
-	pm_runtime_put_autosuspend(&pdev->dev);
+	pm_runtime_mark_last_busy(&pdev->dev);  //电源管理
+	pm_runtime_put_autosuspend(&pdev->dev); //设置自动挂起
 
 	dev_dbg(&i2c_imx->adapter.dev, "claimed irq %d\n", irq);
 	dev_dbg(&i2c_imx->adapter.dev, "device resources: %pR\n", res);
@@ -1168,7 +1168,7 @@ static int i2c_imx_probe(struct platform_device *pdev)
 	dev_info(&i2c_imx->adapter.dev, "IMX I2C adapter registered\n");  //printf-59--i2c i2c-0: IMX I2C adapter registered
 
 	/* Init DMA config if supported */
-	i2c_imx_dma_request(i2c_imx, phy_addr);
+	i2c_imx_dma_request(i2c_imx, phy_addr);  //初始化 DMA　
 
 	return 0;   /* Return OK */
 

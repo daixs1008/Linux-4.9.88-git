@@ -74,7 +74,7 @@ static int i2c_mux_gpio_probe_dt(struct gpiomux *mux,
 		dev_err(&pdev->dev, "Cannot parse i2c-parent\n");
 		return -ENODEV;
 	}
-	adapter = of_find_i2c_adapter_by_node(adapter_np);
+	adapter = of_find_i2c_adapter_by_node(adapter_np);  //通过设备树节点解析出 adapter
 	of_node_put(adapter_np);
 	if (!adapter)
 		return -EPROBE_DEFER;
@@ -92,8 +92,8 @@ static int i2c_mux_gpio_probe_dt(struct gpiomux *mux,
 		return -ENOMEM;
 	}
 
-	for_each_child_of_node(np, child) {
-		of_property_read_u32(child, "reg", values + i);
+	for_each_child_of_node(np, child) { 
+		of_property_read_u32(child, "reg", values + i);   //解析每个子节点的 reg 段
 		i++;
 	}
 	mux->data.values = values;
@@ -172,7 +172,7 @@ static int i2c_mux_gpio_probe(struct platform_device *pdev)
 		gpio_base = 0;
 	}
 
-	parent = i2c_get_adapter(mux->data.parent);
+	parent = i2c_get_adapter(mux->data.parent);  //
 	if (!parent)
 		return -EPROBE_DEFER;
 

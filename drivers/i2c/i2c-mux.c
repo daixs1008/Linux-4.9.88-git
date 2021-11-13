@@ -27,7 +27,7 @@
 #include <linux/of.h>
 #include <linux/slab.h>
 
-/* multiplexer per channel data */
+/* multiplexer 数据选择器 per channel data */
 struct i2c_mux_priv {
 	struct i2c_adapter adap;
 	struct i2c_algorithm algo;
@@ -279,7 +279,7 @@ static const struct i2c_lock_operations i2c_parent_lock_ops = {
 	.unlock_bus =  i2c_parent_unlock_bus,
 };
 
-int i2c_mux_add_adapter(struct i2c_mux_core *muxc,
+int i2c_mux_add_adapter(struct i2c_mux_core *muxc,  //注册多路选择器
 			u32 force_nr, u32 chan_id,
 			unsigned int class)
 {

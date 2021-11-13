@@ -1,0 +1,36 @@
+Symbol: TOUCHSCREEN_GT9XX [=y]                                                                                                                                                  │  
+  │ Type  : boolean                                                                                                                                                                 │  
+  │ Prompt: Goodix touchpanel GT9xx series                                                                                                                                          │  
+  │   Location:                                                                                                                                                                     │  
+  │     -> Device Drivers                                                                                                                                                           │  
+  │       -> Input device support                                                                                                                                                   │  
+  │         -> Generic input layer (needed for keyboard, mouse, ...) (INPUT [=y])                                                                                                   │  
+  │ (1)       -> Touchscreens (INPUT_TOUCHSCREEN [=y])                                                                                                                              │  
+  │   Defined at drivers/input/touchscreen/gt9xx/Kconfig:4                                                                                                                          │  
+  │   Depends on: !UML && INPUT [=y] && INPUT_TOUCHSCREEN [=y] && I2C [=y]                                                                                                          │  
+  │                                                                                                                                                                                 │  
+  │                                                                                                                                                                                 │  
+  │ Symbol: TOUCHSCREEN_GT9XX_TOOL [=y]                                                                                                                                             │  
+  │ Type  : tristate                                                                                                                                                                │  
+  │ Prompt: Goodix GT9xx Tools for debuging                                                                                                                                         │  
+  │   Location:                                                                                                                                                                     │  
+  │     -> Device Drivers                                                                                                                                                           │  
+  │       -> Input device support                                                                                                                                                   │  
+  │         -> Generic input layer (needed for keyboard, mouse, ...) (INPUT [=y])                                                                                                   │  
+  │           -> Touchscreens (INPUT_TOUCHSCREEN [=y])                                                                                                                              │  
+  │ (2)         -> Goodix touchpanel GT9xx series (TOUCHSCREEN_GT9XX [=y])                                                                                                          │  
+  │   Defined at drivers/input/touchscreen/gt9xx/Kconfig:24                                                                                                                         │  
+  │   Depends on: !UML && INPUT [=y] && INPUT_TOUCHSCREEN [=y] && TOUCHSCREEN_GT9XX [=y]                                                                                            │  
+  │                                                                                                                                                                                 │  
+  │                                                                                                                                                                                 │  
+  │ Symbol: TOUCHSCREEN_GT9XX_UPDATE [=y]                                                                                                                                           │  
+  │ Type  : tristate                                                                                                                                                                │  
+  │ Prompt: Goodix GT9xx touch controller auto update support                                                                                                                       │  
+  │   Location:                                                                                                                                                                     │  
+  │     -> Device Drivers                                                                                                                                                           │  
+  │       -> Input device support                                                                                                                                                   │  
+  │         -> Generic input layer (needed for keyboard, mouse, ...) (INPUT [=y])                                                                                                   │  
+  │           -> Touchscreens (INPUT_TOUCHSCREEN [=y])                                                                                                                              │  
+  │ (3)         -> Goodix touchpanel GT9xx series (TOUCHSCREEN_GT9XX [=y])                                                                                                          │  
+  │   Defined at drivers/input/touchscreen/gt9xx/Kconfig:13                                                                                                                         │  
+  │   Depends on: !UML && INPUT [=y] && INPUT_TOUCHSCREEN [=y] && TOUCHSCREEN_GT9XX [=y] 

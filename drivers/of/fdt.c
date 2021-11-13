@@ -496,7 +496,7 @@ static void *__unflatten_device_tree(const void *blob,
 	}
 
 	/* First pass, scan for size */
-	size = unflatten_dt_nodes(blob, NULL, dad, NULL);  //第一次解析  解析设备时的大小  第二和第四个参数为0 ，只解析部分设备树
+	size = unflatten_dt_nodes(blob, NULL, dad, NULL);  //第一次解析  解析设备的大小  第二和第四个参数为0 ，只解析部分设备树
 	if (size < 0)
 		return NULL;
 

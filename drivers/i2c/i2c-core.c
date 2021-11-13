@@ -906,7 +906,7 @@ static int i2c_device_probe(struct device *dev)
 		int irq = -ENOENT;
 
 		if (dev->of_node) {
-			irq = of_irq_get_byname(dev->of_node, "irq");
+			irq = of_irq_get_byname(dev->of_node, "irq");  //获取中断资源
 			if (irq == -EINVAL || irq == -ENODATA)
 				irq = of_irq_get(dev->of_node, 0);
 		} else if (ACPI_COMPANION(dev)) {
@@ -1834,13 +1834,13 @@ static int i2c_register_adapter(struct i2c_adapter *adap)
 	dev_set_name(&adap->dev, "i2c-%d", adap->nr);
 	adap->dev.bus = &i2c_bus_type;
 	adap->dev.type = &i2c_adapter_type;
-	res = device_register(&adap->dev);
+	res = device_register(&adap->dev);   //注册设备 adapter  此函数返回 0 表示adapter 注册成功
 	if (res) {
 		pr_err("adapter '%s': can't register device (%d)\n", adap->name, res);
 		goto out_list;
 	}
 
-	dev_dbg(&adap->dev, "adapter [%s] registered\n", adap->name);
+	dev_dbg(&adap->dev, "adapter [%s] registered\n", adap->name);  //到此一个I2C adapter 注册成功
 
 	pm_runtime_no_callbacks(&adap->dev);
 	pm_suspend_ignore_children(&adap->dev, true);
@@ -1917,12 +1917,12 @@ int i2c_add_adapter(struct i2c_adapter *adapter)
 	struct device *dev = &adapter->dev;
 	int id;
 
-	if (dev->of_node) {
+	if (dev->of_node) {    //如果有设备树节点 就根据设备树节点信息获取 adap->nr 确定I2C 控制器号
 		id = of_alias_get_id(dev->of_node, "i2c");
 		if (id >= 0) {
 			adapter->nr = id;
-			return __i2c_add_numbered_adapter(adapter);
-		}
+			return __i2c_add_numbered_adapter(adapter);  //根据 adap->nr 注册指定 I2C 控制器
+		} 
 	}
 
 	mutex_lock(&core_lock);
