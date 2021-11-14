@@ -411,13 +411,13 @@ static int spi_gpio_probe(struct platform_device *pdev)
 	bool use_of = 0;
 	int num_devices;
 
-	status = spi_gpio_probe_dt(pdev);
+	status = spi_gpio_probe_dt(pdev);  //获取有关spi 设备树资源  ,gpio-sck,gpio-miso,gpio-mosi,num-chipselects
 	if (status < 0)
 		return status;
 	if (status > 0)
 		use_of = 1;
 
-	pdata = dev_get_platdata(&pdev->dev);
+	pdata = dev_get_platdata(&pdev->dev);  //return dev->platform_data;
 #ifdef GENERIC_BITBANG
 	if (!pdata || (!use_of && !pdata->num_chipselect))
 		return -ENODEV;
@@ -428,18 +428,18 @@ static int spi_gpio_probe(struct platform_device *pdev)
 	else
 		num_devices = SPI_N_CHIPSEL;
 
-	status = spi_gpio_request(pdata, dev_name(&pdev->dev), &master_flags);
+	status = spi_gpio_request(pdata, dev_name(&pdev->dev), &master_flags);  //配置硬件 IO 管教 
 	if (status < 0)
 		return status;
 
 	master = spi_alloc_master(&pdev->dev, sizeof(*spi_gpio) +
-					(sizeof(unsigned long) * num_devices));
+					(sizeof(unsigned long) * num_devices));  //分配spi master 控制内存
 	if (!master) {
 		status = -ENOMEM;
 		goto gpio_free;
 	}
 	spi_gpio = spi_master_get_devdata(master);
-	platform_set_drvdata(pdev, spi_gpio);
+	platform_set_drvdata(pdev, spi_gpio);  //设置spi 控制管教
 
 	spi_gpio->pdev = pdev;
 	if (pdata)
@@ -492,7 +492,7 @@ static int spi_gpio_probe(struct platform_device *pdev)
 		spi_gpio->bitbang.txrx_word[SPI_MODE_2] = spi_gpio_spec_txrx_word_mode2;
 		spi_gpio->bitbang.txrx_word[SPI_MODE_3] = spi_gpio_spec_txrx_word_mode3;
 	}
-	spi_gpio->bitbang.setup_transfer = spi_bitbang_setup_transfer;
+	spi_gpio->bitbang.setup_transfer = spi_bitbang_setup_transfer;  //设置每字传送的位数
 	spi_gpio->bitbang.flags = SPI_CS_HIGH;
 
 	status = spi_bitbang_start(&spi_gpio->bitbang);
