@@ -22,21 +22,21 @@
 #include <linux/socket.h>
 
 struct tcphdr {
-	__be16	source;
-	__be16	dest;
-	__be32	seq;
-	__be32	ack_seq;
+	__be16	source;  //源端口，长16位，取值范围 0~65535
+	__be16	dest;  //目的端口，长16位，取值范围 0~65535
+	__be32	seq;  //序列号，长度32位
+	__be32	ack_seq;  //确认号，长度32位，如果设置ACK标志，这个字段的值为接收方期望收到的下一个数据包的序号
 #if defined(__LITTLE_ENDIAN_BITFIELD)
-	__u16	res1:4,
-		doff:4,
-		fin:1,
-		syn:1,
-		rst:1,
-		psh:1,
-		ack:1,
-		urg:1,
-		ece:1,
-		cwr:1;
+	__u16	res1:4,  
+		doff:4,  //数据偏移量，长度4位，以4字节为单位的TCP报头长度，此字节最小值位5（20字节），最大15（60字节）
+		fin:1,  //后面没有来自发送方的其他数据（在一方想关闭连接操作时使用）
+		syn:1,  //在双方进行三次握手时发送SYN标志
+		rst:1,  //在收到并非当前连接数据段时使用
+		psh:1,  //指出应尽块将数据交给用户空间
+		ack:1,  //指出TCP报头中确认
+		urg:1,  //紧急指针
+		ece:1,  //显示拥塞通知
+		cwr:1;  //拥塞串口缩小标志
 #elif defined(__BIG_ENDIAN_BITFIELD)
 	__u16	doff:4,
 		res1:4,
@@ -51,9 +51,9 @@ struct tcphdr {
 #else
 #error	"Adjust your <asm/byteorder.h> defines"
 #endif	
-	__be16	window;
-	__sum16	check;
-	__be16	urg_ptr;
+	__be16	window;  ///长度16位，表示TCP接收窗口的大小，单位为字节
+	__sum16	check;  //TCP报头和TCP数据校验和
+	__be16	urg_ptr;  //长度16位，仅当设置urg标志才有意义，表示相对序列的偏移量
 };
 
 /*
