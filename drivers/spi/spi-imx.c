@@ -1169,11 +1169,11 @@ spi_imx_unprepare_message(struct spi_master *master, struct spi_message *msg)
 
 static int spi_imx_probe(struct platform_device *pdev)
 {
-	struct device_node *np = pdev->dev.of_node;
+	struct device_node *np = pdev->dev.of_node;  //获取设备节点 将会根据np 注册设备总线号
 	const struct of_device_id *of_id =
 			of_match_device(spi_imx_dt_ids, &pdev->dev);
 	struct spi_imx_master *mxc_platform_info =
-			dev_get_platdata(&pdev->dev);
+			dev_get_platdata(&pdev->dev);  //return dev->platform_data;
 	struct spi_master *master;
 	struct spi_imx_data *spi_imx;
 	struct resource *res;
@@ -1184,11 +1184,11 @@ static int spi_imx_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	master = spi_alloc_master(&pdev->dev, sizeof(struct spi_imx_data));
+	master = spi_alloc_master(&pdev->dev, sizeof(struct spi_imx_data));  //分配控制器内存
 	if (!master)
 		return -ENOMEM;
 
-	platform_set_drvdata(pdev, master);
+	platform_set_drvdata(pdev, master);  //pdev->driver_data = master;
 
 	master->bits_per_word_mask = SPI_BPW_RANGE_MASK(1, 32);
 	master->bus_num = np ? -1 : pdev->id;
@@ -1232,13 +1232,21 @@ static int spi_imx_probe(struct platform_device *pdev)
 	}
 	spi_imx->base_phys = res->start;
 
+<<<<<<< Updated upstream
 	irq = platform_get_irq(pdev, 0);
+=======
+	irq = platform_get_irq(pdev, 0);  //获取中断号
+>>>>>>> Stashed changes
 	if (irq < 0) {
 		ret = irq;
 		goto out_master_put;
 	}
 
+<<<<<<< Updated upstream
 	ret = devm_request_irq(&pdev->dev, irq, spi_imx_isr, 0,
+=======
+	ret = devm_request_irq(&pdev->dev, irq, spi_imx_isr, 0,  //申请中断  -->spi_imx_isr  中断回调函数
+>>>>>>> Stashed changes
 			       dev_name(&pdev->dev), spi_imx);
 	if (ret) {
 		dev_err(&pdev->dev, "can't get irq%d: %d\n", irq, ret);

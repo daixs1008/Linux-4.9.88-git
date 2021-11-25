@@ -852,17 +852,18 @@ static int __init spidev_init(void)
 	 * the driver which manages those device numbers.
 	 */
 	BUILD_BUG_ON(N_SPI_MINORS > 256);
-	status = register_chrdev(SPIDEV_MAJOR, "spi", &spidev_fops);
+	//注册字符设备,主设备号SPIDEV_MAJOR=153,捆绑的设备操作函数集为spidev_fops 
+	status = register_chrdev(SPIDEV_MAJOR, "spi", &spidev_fops);  //这里先去匹配设备树中 spi 设备的compatible 有没有和"rohm,dh2228fv"匹配的
 	if (status < 0)
 		return status;
 
-	spidev_class = class_create(THIS_MODULE, "spidev");
+	spidev_class = class_create(THIS_MODULE, "spidev");  //创建设备类spidev_class   --在probe函数里才创建一个设备
 	if (IS_ERR(spidev_class)) {
 		unregister_chrdev(SPIDEV_MAJOR, spidev_spi_driver.driver.name);
 		return PTR_ERR(spidev_class);
 	}
 
-	status = spi_register_driver(&spidev_spi_driver);
+	status = spi_register_driver(&spidev_spi_driver); //注册spi设备驱动spidev_spi_driver
 	if (status < 0) {
 		class_destroy(spidev_class);
 		unregister_chrdev(SPIDEV_MAJOR, spidev_spi_driver.driver.name);
