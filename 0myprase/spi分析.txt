@@ -1,0 +1,186 @@
+
+
+
+1.spi_master 注册过程
+
+\drivers\spi\spi.c
+
+struct spi_master {
+	struct device	dev;  //驱动的设备接口
+	struct list_head list;  //链接全局spi_master(spi控制器)的链表
+	s16			bus_num;  //控制总线号--即第几条总线
+	u16			num_chipselect;
+	u16			dma_alignment;
+	u16			mode_bits;
+	u32			bits_per_word_mask;
+	u32			min_speed_hz;
+	u32			max_speed_hz;
+	u16			flags;
+	size_t (*max_transfer_size)(struct spi_device *spi);
+	size_t (*max_message_size)(struct spi_device *spi);
+	struct mutex		io_mutex;
+	spinlock_t		bus_lock_spinlock;
+	struct mutex		bus_lock_mutex;
+	bool			bus_lock_flag;
+	int			(*setup)(struct spi_device *spi);
+	int			(*transfer)(struct spi_device *spi,	struct spi_message *mesg);
+	void			(*cleanup)(struct spi_device *spi);
+	bool			(*can_dma)(struct spi_master *master, struct spi_device *spi, struct spi_transfer *xfer);
+	bool				queued;
+	struct kthread_worker		kworker;
+	struct task_struct		*kworker_task;
+	struct kthread_work		pump_messages;
+	spinlock_t			queue_lock;
+	struct list_head		queue;
+	struct spi_message		*cur_msg;
+	bool				idling;
+	bool				busy;
+	bool				running;
+	bool				rt;
+	bool				auto_runtime_pm;
+	bool        cur_msg_prepared;
+	bool				cur_msg_mapped;
+	struct completion               xfer_completion;
+	size_t				max_dma_len;
+	int (*prepare_transfer_hardware)(struct spi_master *master);
+	int (*transfer_one_message)(struct spi_master *master,  struct spi_message *mesg);
+	int (*unprepare_transfer_hardware)(struct spi_master *master);
+	int (*prepare_message)(struct spi_master *master,    struct spi_message *message);
+	int (*unprepare_message)(struct spi_master *master,	 struct spi_message *message);
+	int (*spi_flash_read)(struct  spi_device *spi,	      struct spi_flash_read_message *msg);
+	bool (*flash_read_supported)(struct spi_device *spi);
+	void (*set_cs)(struct spi_device *spi, bool enable);
+	int (*transfer_one)(struct spi_master *master, struct spi_device *spi,	    struct spi_transfer *transfer);
+	void (*handle_err)(struct spi_master *master,	   struct spi_message *message);
+	int			*cs_gpios;
+	struct spi_statistics	statistics;
+	struct dma_chan		*dma_tx;
+	struct dma_chan		*dma_rx;
+	void			*dummy_rx;
+	void			*dummy_tx;
+	int (*fw_translate_cs)(struct spi_master *master, unsigned cs);
+};
+
+struct spi_transfer {
+	const void	*tx_buf;
+	void		*rx_buf;
+	unsigned	len;
+	dma_addr_t	tx_dma;
+	dma_addr_t	rx_dma;
+	struct sg_table tx_sg;
+	struct sg_table rx_sg;
+	unsigned	cs_change:1;
+	unsigned	tx_nbits:3;
+	unsigned	rx_nbits:3;
+#define	SPI_NBITS_SINGLE	0x01 /* 1bit transfer */
+#define	SPI_NBITS_DUAL		0x02 /* 2bits transfer */
+#define	SPI_NBITS_QUAD		0x04 /* 4bits transfer */
+	u8		bits_per_word;
+	u16		delay_usecs;
+	u32		speed_hz;
+	struct list_head transfer_list;
+};
+
+struct spi_message {
+	struct list_head	transfers;
+	struct spi_device	*spi;
+	unsigned		is_dma_mapped:1;
+	void			(*complete)(void *context);
+	void			*context;
+	unsigned		frame_length;
+	unsigned		actual_length;
+	int			status;
+	struct list_head	queue;
+	void			*state;
+	struct list_head        resources;
+};
+
+
+
+ spi-gpio 控制器注册过程
+drivers\spi\spi-gpio.c
+
+static const struct of_device_id spi_gpio_dt_ids[] = {
+	{ .compatible = "spi-gpio" },
+	{}
+};
+
+static struct platform_driver spi_gpio_driver = {
+	.driver = {
+		.name	= DRIVER_NAME,
+		.of_match_table = of_match_ptr(spi_gpio_dt_ids),
+	},
+	.probe		= spi_gpio_probe,
+	.remove		= spi_gpio_remove,
+};
+
+
+static int spi_gpio_probe(struct platform_device *pdev)
+	status = spi_gpio_probe_dt(pdev);  //获取有关spi 设备树资源  ,gpio-sck,gpio-miso,gpio-mosi,num-chipselects
+	pdata = dev_get_platdata(&pdev->dev);  //return dev->platform_data;
+	status = spi_gpio_request(pdata, dev_name(&pdev->dev), &master_flags);  //配置硬件 IO 管教 
+	master = spi_alloc_master(&pdev->dev, sizeof(*spi_gpio) +		(sizeof(unsigned long) * num_devices));  //分配spi master 控制内存
+	spi_gpio = spi_master_get_devdata(master);
+	platform_set_drvdata(pdev, spi_gpio);  //设置spi 控制管教
+	status = spi_bitbang_start(&spi_gpio->bitbang);
+
+
+spi-gpio 控制器注册过程
+spdif@02004000 {               //spi 0
+					compatible = "fsl,imx6ul-spdif", "fsl,imx35-spdif";
+ecspi@02008000 {               //spi 1
+					compatible = "fsl,imx6ul-ecspi", "fsl,imx51-ecspi";
+ecspi@0200c000 {               //spi 2
+					compatible = "fsl,imx6ul-ecspi", "fsl,imx51-ecspi";					
+ecspi@02010000 {               //spi 3
+					compatible = "fsl,imx6ul-ecspi", "fsl,imx51-ecspi";					
+						
+	spi4 {
+		compatible = "spi-gpio";
+		
+						                   //spi 4
+static const struct of_device_id spi_gpio_dt_ids[] = {
+	{ .compatible = "spi-gpio" },
+	{}
+};			
+
+	共有4路 spi 控制器						
+drivers\spi\spi-imx.c
+
+module_platform_driver(spi_imx_driver);   注册平台设备驱动  即注册spi 总线控制器   
+如果设备树spi 的compatible 与上述4种相同就会注册相应的spi总线驱动  就调用 .probe ->spi_imx_probe
+
+
+static int spi_imx_probe(struct platform_device *pdev)
+
+
+
+
+
+
+
+int devm_spi_register_master(struct device *dev, struct spi_master *master)
+	int spi_register_master(struct spi_master *master)
+
+
+
+
+
+
+
+spi 总线注册分析
+
+
+static const struct of_device_id spi_imx_dt_ids[] = {
+	{ .compatible = "fsl,imx6ul-ecspi", .data = &imx6ul_ecspi_devtype_data, },
+	{ /* sentinel */ }
+};
+根据设备树中spi 节点有此 compatible 注册spi 总线
+
+module_platform_driver(spi_imx_driver); //根据数组 spi_imx_driver 和 设备树匹配的情况注册 spi 总线
+
+	.probe = spi_imx_probe,
+	
+	static int spi_imx_probe(struct platform_device *pdev)
+		struct device_node *np = pdev->dev.of_node;  根据平台设备的节点获取当前设备的节点
+

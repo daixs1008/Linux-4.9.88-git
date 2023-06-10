@@ -1,0 +1,25 @@
+
+RESERVEDMEM_OF_DECLARE(cma, "shared-dma-pool", rmem_cma_setup);
+
+#define RESERVEDMEM_OF_DECLARE(name,    compat,            init)
+#define RESERVEDMEM_OF_DECLARE(cma, "shared-dma-pool", rmem_cma_setup)	
+
+_OF_DECLARE(reservedmem, name, compat, init, reservedmem_of_init_fn)
+_OF_DECLARE(reservedmem, cma, "shared-dma-pool", rmem_cma_setup, reservedmem_of_init_fn)
+
+#define _OF_DECLARE(table, name, compat, fn, fn_type)			
+	static const struct of_device_id __of_table_##name		\
+		__used __section(__##table##_of_table)			\
+		 = { .compatible = compat,				\
+		     .data = (fn == (fn_type)NULL) ? fn : fn  }
+			 
+#define _OF_DECLARE(reservedmem, cma, "shared-dma-pool", init, reservedmem_of_init_fn)			
+	static const struct of_device_id __of_table_cma		\
+		__used __section(__reservedmem_of_table)			\
+		 = { .compatible = "shared-dma-pool",				\
+		     .data = (rmem_cma_setup == (reservedmem_of_init_fn)NULL) ? rmem_cma_setup : rmem_cma_setup  }
+			 
+			 
+CLOCKSOURCE_OF_DECLARE--(armv7_arch_timer_mem, "arm,armv7-timer-mem", arch_timer_mem_init); 未找到声明
+
+
