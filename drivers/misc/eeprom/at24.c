@@ -840,7 +840,7 @@ static struct i2c_driver at24_driver = {
 		.name = "at24",
 		.acpi_match_table = ACPI_PTR(at24_acpi_ids),
 	},
-	.probe = at24_probe,
+	.probe = at24_probe,  // 会注册字符设备程序
 	.remove = at24_remove,
 	.id_table = at24_ids,
 };

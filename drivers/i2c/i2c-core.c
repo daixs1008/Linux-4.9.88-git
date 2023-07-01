@@ -2851,7 +2851,7 @@ struct i2c_adapter *i2c_get_adapter(int nr)
 	struct i2c_adapter *adapter;
 
 	mutex_lock(&core_lock);
-	adapter = idr_find(&i2c_adapter_idr, nr);
+	adapter = idr_find(&i2c_adapter_idr, nr);  // 使用次设备号找到 控制器 (i2c_adapter)  所有的i2c_adapter都会放在i2c_adapter_idr链表里
 	if (!adapter)
 		goto exit;
 

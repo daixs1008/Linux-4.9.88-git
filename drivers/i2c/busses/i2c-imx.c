@@ -445,7 +445,7 @@ static int i2c_imx_bus_busy(struct imx_i2c_struct *i2c_imx, int for_busy)
 
 static int i2c_imx_trx_complete(struct imx_i2c_struct *i2c_imx)
 {
-	wait_event_timeout(i2c_imx->queue, i2c_imx->i2csr & I2SR_IIF, HZ / 10);
+	wait_event_timeout(i2c_imx->queue, i2c_imx->i2csr & I2SR_IIF, HZ / 10);  // ç­‰å¾…äº‹ä»¶ï¼Œå¹¶ä¸”è¶…æ—¶é€€å‡º
 
 	if (unlikely(!(i2c_imx->i2csr & I2SR_IIF))) {
 		dev_dbg(&i2c_imx->adapter.dev, "<%s> Timeout\n", __func__);
@@ -573,7 +573,7 @@ static void i2c_imx_stop(struct imx_i2c_struct *i2c_imx)
 	imx_i2c_write_reg(temp, i2c_imx, IMX_I2C_I2CR);
 }
 
-static irqreturn_t i2c_imx_isr(int irq, void *dev_id)¡¡//
+static irqreturn_t i2c_imx_isr(int irq, void *dev_id)ã€€//
 {
 	struct imx_i2c_struct *i2c_imx = dev_id;
 	unsigned int temp;
@@ -788,7 +788,7 @@ static int i2c_imx_read(struct imx_i2c_struct *i2c_imx, struct i2c_msg *msgs, bo
 
 	/* write slave address */
 	imx_i2c_write_reg((msgs->addr << 1) | 0x01, i2c_imx, IMX_I2C_I2DR);
-	result = i2c_imx_trx_complete(i2c_imx);
+	result = i2c_imx_trx_complete(i2c_imx);  // ç­‰å¾…å®Œæˆï¼Œæœ‰ä¸­æ–­ä¼šå”¤é†’ï¼Œè¶…æ—¶æ²¡æœ‰ä¸­æ–­å°±ä¼šè¶…æ—¶è¿”å›
 	if (result)
 		return result;
 	result = i2c_imx_acked(i2c_imx);
@@ -808,7 +808,7 @@ static int i2c_imx_read(struct imx_i2c_struct *i2c_imx, struct i2c_msg *msgs, bo
 	if ((msgs->len - 1) || block_data)
 		temp &= ~I2CR_TXAK;
 	imx_i2c_write_reg(temp, i2c_imx, IMX_I2C_I2CR);
-	imx_i2c_read_reg(i2c_imx, IMX_I2C_I2DR); /* dummy read */
+	imx_i2c_read_reg(i2c_imx, IMX_I2C_I2DR); /* dummy read è™šçš„è¯»ï¼Œæ­¤æ—¶è¯»çš„æ•°æ®æ— æ•ˆï¼Œä¸ºäº†å¯åŠ¨ä¼ è¾“ï¼ŒèŠ¯ç‰‡è¦æ±‚è¿™æ ·åš*/
 
 	dev_dbg(&i2c_imx->adapter.dev, "<%s> read data\n", __func__);
 
@@ -871,7 +871,7 @@ static int i2c_imx_read(struct imx_i2c_struct *i2c_imx, struct i2c_msg *msgs, bo
 		if ((!i) && block_data)
 			msgs->buf[0] = len;
 		else
-			msgs->buf[i] = imx_i2c_read_reg(i2c_imx, IMX_I2C_I2DR);
+			msgs->buf[i] = imx_i2c_read_reg(i2c_imx, IMX_I2C_I2DR);  // è¯»æ•°æ®ä¿å­˜åœ¨buffé‡Œé¢
 		dev_dbg(&i2c_imx->adapter.dev,
 			"<%s> read byte: B%d=0x%X\n",
 			__func__, i, msgs->buf[i]);
@@ -901,7 +901,7 @@ static int i2c_imx_xfer(struct i2c_adapter *adapter,
 		goto out;
 
 	/* Start I2C transfer */
-	result = i2c_imx_start(i2c_imx);
+	result = i2c_imx_start(i2c_imx);  // å¯åŠ¨ä¼ è¾“
 	if (result) {
 		if (i2c_imx->adapter.bus_recovery_info) {
 			i2c_recover_bus(&i2c_imx->adapter);
@@ -913,7 +913,7 @@ static int i2c_imx_xfer(struct i2c_adapter *adapter,
 		goto fail0;
 
 	/* read/write data */
-	for (i = 0; i < num; i++) {
+	for (i = 0; i < num; i++) {  // æ“ä½œå¤šå°‘ä¸ªæ¶ˆæ¯
 		if (i == num - 1)
 			is_lastmsg = true;
 
@@ -1065,52 +1065,52 @@ static int i2c_imx_probe(struct platform_device *pdev)
 
 	dev_dbg(&pdev->dev, "<%s>\n", __func__);
 
-	irq = platform_get_irq(pdev, 0); //»ñÈ¡ÖĞ¶ÏºÅ
+	irq = platform_get_irq(pdev, 0); //è·å–ä¸­æ–­å·
 	if (irq < 0) {
 		dev_err(&pdev->dev, "can't get irq number\n");
 		return irq;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0); //»ñÈ¡Éè±¸IO×ÊÔ´
-	base = devm_ioremap_resource(&pdev->dev, res);  //Ó³Éäµ½ĞéÄâÄÚ´æ
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0); //è·å–è®¾å¤‡IOèµ„æº
+	base = devm_ioremap_resource(&pdev->dev, res);  //æ˜ å°„åˆ°è™šæ‹Ÿå†…å­˜
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 
 	phy_addr = (dma_addr_t)res->start;
-	i2c_imx = devm_kzalloc(&pdev->dev, sizeof(*i2c_imx), GFP_KERNEL);  //·ÖÅäÉè±¸ÄÚ´æ×ÊÔ´
+	i2c_imx = devm_kzalloc(&pdev->dev, sizeof(*i2c_imx), GFP_KERNEL);  //åˆ†é…è®¾å¤‡å†…å­˜èµ„æº
 	if (!i2c_imx)
 		return -ENOMEM;
 
 	if (of_id)
-		i2c_imx->hwdata = of_id->data;  //Èç¹ûÓĞid ¾Í¸³Öµ¸ø i2c_imx->hwdata
+		i2c_imx->hwdata = of_id->data;  //å¦‚æœæœ‰id å°±èµ‹å€¼ç»™ i2c_imx->hwdata
 	else
-		i2c_imx->hwdata = (struct imx_i2c_hwdata *)  //Èç¹ûÃ»ÓĞ¾Í´ÓÉè±¸Çı¶¯µÄË½ÓĞÊı¾İÖĞ»ñÈ¡
+		i2c_imx->hwdata = (struct imx_i2c_hwdata *)  //å¦‚æœæ²¡æœ‰å°±ä»è®¾å¤‡é©±åŠ¨çš„ç§æœ‰æ•°æ®ä¸­è·å–
 				platform_get_device_id(pdev)->driver_data;
 
-	/* Setup i2c_imx driver structure ÉèÖÃÇı¶¯Æ÷½á¹¹Ìå*/
+	/* Setup i2c_imx driver structure è®¾ç½®é©±åŠ¨å™¨ç»“æ„ä½“*/
 	strlcpy(i2c_imx->adapter.name, pdev->name, sizeof(i2c_imx->adapter.name));
 	i2c_imx->adapter.owner		= THIS_MODULE;
 	i2c_imx->adapter.algo		= &i2c_imx_algo;
 	i2c_imx->adapter.dev.parent	= &pdev->dev;
 	i2c_imx->adapter.nr		= pdev->id;
 	i2c_imx->adapter.dev.of_node	= pdev->dev.of_node;
-	i2c_imx->base			= base;  //ĞéÄâµØÖ·
+	i2c_imx->base			= base;  //è™šæ‹Ÿåœ°å€
 
 	/* Get I2C clock */
-	i2c_imx->clk = devm_clk_get(&pdev->dev, NULL);  //»ñÈ¡Ê±ÖÓ
+	i2c_imx->clk = devm_clk_get(&pdev->dev, NULL);  //è·å–æ—¶é’Ÿ
 	if (IS_ERR(i2c_imx->clk)) {
 		dev_err(&pdev->dev, "can't get I2C clock\n");
 		return PTR_ERR(i2c_imx->clk);
 	}
 
-	ret = clk_prepare_enable(i2c_imx->clk);  //½âÎö²¢Ê¹ÄÜÊ±ÖÓ
+	ret = clk_prepare_enable(i2c_imx->clk);  //è§£æå¹¶ä½¿èƒ½æ—¶é’Ÿ
 	if (ret) {
 		dev_err(&pdev->dev, "can't enable I2C clock, ret=%d\n", ret);
 		return ret;
 	}
 
 	/* Request IRQ */
-	ret = devm_request_irq(&pdev->dev, irq, i2c_imx_isr,  //×¢²áÖĞ´¦Àíº¯Êı i2c_imx_isr
+	ret = devm_request_irq(&pdev->dev, irq, i2c_imx_isr,  //æ³¨å†Œä¸­å¤„ç†å‡½æ•° i2c_imx_isr
 			       IRQF_NO_SUSPEND, pdev->name, i2c_imx);
 	if (ret) {
 		dev_err(&pdev->dev, "can't claim irq %d\n", irq);
@@ -1118,7 +1118,7 @@ static int i2c_imx_probe(struct platform_device *pdev)
 	}
 
 	/* Init queue */
-	init_waitqueue_head(&i2c_imx->queue);  //³õÊ¼»¯ ¶ÓÁĞ
+	init_waitqueue_head(&i2c_imx->queue);  //åˆå§‹åŒ– é˜Ÿåˆ—
 
 	/* Set up adapter data */
 	i2c_set_adapdata(&i2c_imx->adapter, i2c_imx);
@@ -1154,12 +1154,12 @@ static int i2c_imx_probe(struct platform_device *pdev)
 		goto rpm_disable;
 
 	/* Add I2C adapter */
-	ret = i2c_add_numbered_adapter(&i2c_imx->adapter);  //Ôö¼ÓÒ»¸öadapter 
+	ret = i2c_add_numbered_adapter(&i2c_imx->adapter);  //å¢åŠ ä¸€ä¸ªadapter 
 	if (ret < 0)
 		goto rpm_disable;
 
-	pm_runtime_mark_last_busy(&pdev->dev);  //µçÔ´¹ÜÀí
-	pm_runtime_put_autosuspend(&pdev->dev); //ÉèÖÃ×Ô¶¯¹ÒÆğ
+	pm_runtime_mark_last_busy(&pdev->dev);  //ç”µæºç®¡ç†
+	pm_runtime_put_autosuspend(&pdev->dev); //è®¾ç½®è‡ªåŠ¨æŒ‚èµ·
 
 	dev_dbg(&i2c_imx->adapter.dev, "claimed irq %d\n", irq);
 	dev_dbg(&i2c_imx->adapter.dev, "device resources: %pR\n", res);
@@ -1168,7 +1168,7 @@ static int i2c_imx_probe(struct platform_device *pdev)
 	dev_info(&i2c_imx->adapter.dev, "IMX I2C adapter registered\n");  //printf-59--i2c i2c-0: IMX I2C adapter registered
 
 	/* Init DMA config if supported */
-	i2c_imx_dma_request(i2c_imx, phy_addr);  //³õÊ¼»¯ DMA¡¡
+	i2c_imx_dma_request(i2c_imx, phy_addr);  //åˆå§‹åŒ– DMAã€€
 
 	return 0;   /* Return OK */
 

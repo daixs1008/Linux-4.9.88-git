@@ -422,11 +422,11 @@ static long i2cdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 	case I2C_SLAVE:
-	case I2C_SLAVE_FORCE:
+	case I2C_SLAVE_FORCE:  // 设置 设备地址      // 强制使用，即使已有驱动程序也使用
 		if ((arg > 0x3ff) ||
 		    (((client->flags & I2C_M_TEN) == 0) && arg > 0x7f))
 			return -EINVAL;
-		if (cmd == I2C_SLAVE && i2cdev_check_addr(client->adapter, arg))
+		if (cmd == I2C_SLAVE && i2cdev_check_addr(client->adapter, arg))  // I2C_SLAVE 时，如果已有驱动程序支持，返回错误，
 			return -EBUSY;
 		/* REVISIT: address could become busy later */
 		client->addr = arg;
@@ -480,13 +480,13 @@ static long i2cdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return 0;
 }
 
-static int i2cdev_open(struct inode *inode, struct file *file)
+static int i2cdev_open(struct inode *inode, struct file *file)  // 通过设备节点找到一个控制器，并保存起来
 {
-	unsigned int minor = iminor(inode);
+	unsigned int minor = iminor(inode);  // inode 为一个设备节点，从设备节点里获取一个次设备号
 	struct i2c_client *client;
 	struct i2c_adapter *adap;
 
-	adap = i2c_get_adapter(minor);
+	adap = i2c_get_adapter(minor);  // 使用次设备号找到 控制器 (i2c_adapter) 
 	if (!adap)
 		return -ENODEV;
 
@@ -497,15 +497,15 @@ static int i2cdev_open(struct inode *inode, struct file *file)
 	 * or I2C core code!!  It just holds private copies of addressing
 	 * information and maybe a PEC flag.
 	 */
-	client = kzalloc(sizeof(*client), GFP_KERNEL);
+	client = kzalloc(sizeof(*client), GFP_KERNEL);  // 分配一个 i2c_client 结构
 	if (!client) {
 		i2c_put_adapter(adap);
 		return -ENOMEM;
 	}
 	snprintf(client->name, I2C_NAME_SIZE, "i2c-dev %d", adap->nr);
 
-	client->adapter = adap;
-	file->private_data = client;
+	client->adapter = adap;  // 关联 i2c 设备 和 i2c 控制器
+	file->private_data = client;  // 把 i2c 设备放入文件的私有数据，在ioctrl 会通过文件的私有数据获取 i2c client
 
 	return 0;
 }
@@ -551,7 +551,7 @@ static int i2cdev_attach_adapter(struct device *dev, void *dummy)
 
 	cdev_init(&i2c_dev->cdev, &i2cdev_fops);
 	i2c_dev->cdev.owner = THIS_MODULE;
-	res = cdev_add(&i2c_dev->cdev, MKDEV(I2C_MAJOR, adap->nr), 1);
+	res = cdev_add(&i2c_dev->cdev, MKDEV(I2C_MAJOR, adap->nr), 1);  // 每一个存在的控制器下面都注册一个字符设备 adap->nr 表明是哪个 I2C 总线控制器
 	if (res)
 		goto error_cdev;
 

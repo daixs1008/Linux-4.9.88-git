@@ -546,7 +546,7 @@ struct i2c_adapter_quirks {
 struct i2c_adapter {
 	struct module *owner;
 	unsigned int class;		  /* classes to allow probing for */
-	const struct i2c_algorithm *algo; /* the algorithm to access the bus */
+	const struct i2c_algorithm *algo; /* the algorithm to access the bus */  // 传输数据到设备上的函数
 	void *algo_data;
 
 	/* data fields that are valid for all devices	*/
@@ -558,7 +558,7 @@ struct i2c_adapter {
 	int retries;
 	struct device dev;		/* the adapter device */
 
-	int nr;
+	int nr;  // 第几个 i2c 总线
 	char name[48];
 	struct completion dev_released;
 
