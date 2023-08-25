@@ -2750,7 +2750,7 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 		      current->comm, current->pid, preempt_count()))
 		preempt_count_set(FORK_PREEMPT_COUNT);
 
-	rq->prev_mm = NULL;
+	rq->prev_mm = NULL;  // rq是当前处理器的运行队列，如果进程prev是内核线程，那么rq->prev_mm存放他借用的内存描述符，这里把rq->prev_mm设置成空指针
 
 	/*
 	 * A task struct has one reference for the use as "current".
@@ -2766,11 +2766,11 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 	prev_state = prev->state;
 	vtime_task_switch(prev);
 	perf_event_task_sched_in(prev, current);
-	finish_lock_switch(rq, prev);
-	finish_arch_post_lock_switch();
+	finish_lock_switch(rq, prev);  // 把prev->on_cpu设置为0，表示进程prev没有在CPU上运行，然后释放运行队列的锁，开启硬中断。
+	finish_arch_post_lock_switch();  // ARM64 是个空函数
 
 	fire_sched_in_preempt_notifiers(current);
-	if (mm)
+	if (mm)  // 如果prev是内核线程，那么他借用的内核描述符引用计数器减1，如果引用计数器减到0，那么释放内存描述符
 		mmdrop(mm);
 	if (unlikely(prev_state == TASK_DEAD)) {
 		if (prev->sched_class->task_dead)
@@ -2783,9 +2783,9 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 		kprobe_flush_task(prev);
 
 		/* Task is done with its stack. */
-		put_task_stack(prev);
+		put_task_stack(prev);  // 如果结构体thread_info放到进程描述符里面，而不是放在内核栈的顶部，那么释放进程的内核栈
 
-		put_task_struct(prev);
+		put_task_struct(prev);  // 把进程描述符的引用计数器减1，如果引用计数器变为0，那么释放进程描述符
 	}
 
 	tick_nohz_task_switch();
@@ -2864,7 +2864,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 {
 	struct mm_struct *mm, *oldmm;
 
-	prepare_task_switch(rq, prev, next);
+	prepare_task_switch(rq, prev, next);  // ARM64 是个空的宏
 
 	mm = next->mm;
 	oldmm = prev->active_mm;
@@ -2873,16 +2873,20 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 * combine the page table reload and the switch backend into
 	 * one hypercall.
 	 */
-	arch_start_context_switch(prev);
+	arch_start_context_switch(prev);  // ARM64 是个空的宏
 
+	// 如果下一个进程是一个内核进程(mm是一个空指针)，内核线程没有用户虚拟地址空间，那么需要借用上一个进程的用户虚拟地址空间，
+	// 把借来的用户虚拟地址空间保存在成员active_mm中，内核线程在借用的用户虚拟地址空间的上面运行
 	if (!mm) {
 		next->active_mm = oldmm;
 		atomic_inc(&oldmm->mm_count);
-		enter_lazy_tlb(oldmm, next);
+		enter_lazy_tlb(oldmm, next);  // 通知处理器架构不需要切换用户虚拟地址空间，ARM64架构下是一个空函数
 	} else
-		switch_mm_irqs_off(oldmm, mm, next);
+		switch_mm_irqs_off(oldmm, mm, next);  // 如果下一个用户是用户进程，切换进程的用户虚拟地址空间
 
-	if (!prev->mm) {
+	// 如果上一个进程是内核进程，那么把成员active_mm设置成空指针，断开他与借用的用户虚拟地址空间的联系
+	// 把他借用的用户虚拟地址空间保存在运行队列的成员prev_mm中
+	if (!prev->mm) {  
 		prev->active_mm = NULL;
 		rq->prev_mm = oldmm;
 	}
@@ -2896,8 +2900,8 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	spin_release(&rq->lock.dep_map, 1, _THIS_IP_);
 
 	/* Here we just switch the register state and the stack. */
-	switch_to(prev, next, prev);
-	barrier();
+	switch_to(prev, next, prev);// 这是每种架构必须定义的函数，负责切换处理器的寄存器
+	barrier();  // 编译器优化屏障，防止编译器优化时，调整Switch_t 和 finish_task_switch的顺序
 
 	return finish_task_switch(prev);
 }

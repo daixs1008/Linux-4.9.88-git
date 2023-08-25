@@ -778,12 +778,12 @@ static void update_curr_dl(struct rq *rq)
 
 	sched_rt_avg_update(rq, delta_exec);
 
-	dl_se->runtime -= delta_exec;
+	dl_se->runtime -= delta_exec;  // 计算限期进程的剩余运行时间
 
 throttle:
-	if (dl_runtime_exceeded(dl_se) || dl_se->dl_yielded) {
-		dl_se->dl_throttled = 1;
-		__dequeue_task_dl(rq, curr, 0);
+	if (dl_runtime_exceeded(dl_se) || dl_se->dl_yielded) {  // 如果限期进程用完了运行时间或者主动让出处理器
+		dl_se->dl_throttled = 1;  // 设置节流标志
+		__dequeue_task_dl(rq, curr, 0);  // 把当前进程从限期运行队列中删除
 		if (unlikely(dl_se->dl_boosted || !start_dl_timer(curr)))
 			enqueue_task_dl(rq, curr, ENQUEUE_REPLENISH);
 

@@ -73,6 +73,8 @@ static inline void send_msg(struct cn_msg *msg)
 	preempt_enable();
 }
 
+// 通过进程事件连接器向用户通告进程事件 PROC_EVENT_FORK。进程可以通过时间连接器监视进程事件
+// 创建协议号为 NETLINK_CONNECTOR 的netlink套接字，然后绑定到多播组CN_IDX_PROC
 void proc_fork_connector(struct task_struct *task)
 {
 	struct cn_msg *msg;
@@ -87,7 +89,7 @@ void proc_fork_connector(struct task_struct *task)
 	ev = (struct proc_event *)msg->data;
 	memset(&ev->event_data, 0, sizeof(ev->event_data));
 	ev->timestamp_ns = ktime_get_ns();
-	ev->what = PROC_EVENT_FORK;
+	ev->what = PROC_EVENT_FORK;  // 进程事件
 	rcu_read_lock();
 	parent = rcu_dereference(task->real_parent);
 	ev->event_data.fork.parent_pid = parent->pid;

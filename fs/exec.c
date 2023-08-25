@@ -1714,19 +1714,19 @@ static int do_execveat_common(int fd, struct filename *filename,
 	if (!bprm)
 		goto out_files;
 
-	retval = prepare_bprm_creds(bprm);
+	retval = prepare_bprm_creds(bprm);  // 
 	if (retval)
 		goto out_free;
 
 	check_unsafe_exec(bprm);
 	current->in_execve = 1;
 
-	file = do_open_execat(fd, filename, flags);
+	file = do_open_execat(fd, filename, flags);  // 打开可执行文件
 	retval = PTR_ERR(file);
 	if (IS_ERR(file))
 		goto out_unmark;
 
-	sched_exec();
+	sched_exec();  // 进程调度，选择负载最轻的处理器
 
 	bprm->file = file;
 	if (fd == AT_FDCWD || filename->name[0] == '/') {
@@ -1752,7 +1752,7 @@ static int do_execveat_common(int fd, struct filename *filename,
 	}
 	bprm->interp = bprm->filename;
 
-	retval = bprm_mm_init(bprm);
+	retval = bprm_mm_init(bprm);  // 创建新的内存描述符，分配临时的用户栈
 	if (retval)
 		goto out_unmark;
 
@@ -1764,10 +1764,11 @@ static int do_execveat_common(int fd, struct filename *filename,
 	if ((retval = bprm->envc) < 0)
 		goto out;
 
-	retval = prepare_binprm(bprm);
+	retval = prepare_binprm(bprm);  // 设置进程证书，然后读文件的前面128字节到缓冲区
 	if (retval < 0)
 		goto out;
 
+	// 依次把文件名称，环境字符串和参数字符串压到用户栈
 	retval = copy_strings_kernel(1, &bprm->filename, bprm);
 	if (retval < 0)
 		goto out;
@@ -1783,7 +1784,7 @@ static int do_execveat_common(int fd, struct filename *filename,
 
 	would_dump(bprm, bprm->file);
 
-	retval = exec_binprm(bprm);
+	retval = exec_binprm(bprm);  // 尝试注册过的每种二进制格式的处理程序，直到某个处理程序识别正在装载的程序为止
 	if (retval < 0)
 		goto out;
 

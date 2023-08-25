@@ -701,14 +701,14 @@ static int load_elf_binary(struct linux_binprm *bprm)
 	if (memcmp(loc->elf_ex.e_ident, ELFMAG, SELFMAG) != 0)
 		goto out;
 
-	if (loc->elf_ex.e_type != ET_EXEC && loc->elf_ex.e_type != ET_DYN)
+	if (loc->elf_ex.e_type != ET_EXEC && loc->elf_ex.e_type != ET_DYN)  // 检查 ELF 魔数
 		goto out;
 	if (!elf_check_arch(&loc->elf_ex))
 		goto out;
 	if (!bprm->file->f_op->mmap)
 		goto out;
 
-	elf_phdata = load_elf_phdrs(&loc->elf_ex, bprm->file);
+	elf_phdata = load_elf_phdrs(&loc->elf_ex, bprm->file);  // 读取程序首部表
 	if (!elf_phdata)
 		goto out;
 
@@ -839,7 +839,7 @@ static int load_elf_binary(struct linux_binprm *bprm)
 		goto out_free_dentry;
 
 	/* Flush all traces of the currently running executable */
-	retval = flush_old_exec(bprm);
+	retval = flush_old_exec(bprm);  // 终止线程组所有其他线程
 	if (retval)
 		goto out_free_dentry;
 
@@ -1036,7 +1036,7 @@ static int load_elf_binary(struct linux_binprm *bprm)
 	 * mapping in the interpreter, to make sure it doesn't wind
 	 * up getting placed where the bss needs to go.
 	 */
-	retval = set_brk(elf_bss, elf_brk);
+	retval = set_brk(elf_bss, elf_brk);  // 把未初始化数据段映射到用户虚拟地址空间，并设置堆的起始虚拟地址，
 	if (retval)
 		goto out_free_dentry;
 	if (likely(elf_bss != elf_brk) && unlikely(padzero(elf_bss))) {
@@ -1089,7 +1089,7 @@ static int load_elf_binary(struct linux_binprm *bprm)
 #endif /* ARCH_HAS_SETUP_ADDITIONAL_PAGES */
 
 	retval = create_elf_tables(bprm, &loc->elf_ex,
-			  load_addr, interp_load_addr);
+			  load_addr, interp_load_addr);  // 依次把传递ELF解释器信息的辅助向量，环境指针数组envp，参数指针数组argv和参数个数argc压到进程的用户栈
 	if (retval < 0)
 		goto out;
 	/* N.B. passed_fileno might not be initialized? */

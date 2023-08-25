@@ -479,11 +479,11 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 
 	if (node == NUMA_NO_NODE)
 		node = tsk_fork_get_node(orig);
-	tsk = alloc_task_struct_node(node);  //Ϊ�½��̻�ȡ������������������������ַ������ tsk �ֲ�������
+	tsk = alloc_task_struct_node(node);  //为新进程获取进程描述符，并将描述符地址保存在 tsk 局部变量中
 	if (!tsk)
 		return NULL;
 
-	stack = alloc_thread_stack_node(tsk, node);  //��ȡһ������ڴ�������������½��̵�thread_info���ں�ջ
+	stack = alloc_thread_stack_node(tsk, node);  //获取一块空闲内存区，用来存放新进程的thread_info和内核栈
 	if (!stack)
 		goto free_tsk;
 
@@ -534,7 +534,7 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	 * One for us, one for whoever does the "release_task()" (usually
 	 * parent)
 	 */
-	atomic_set(&tsk->usage, 2);  //���½�����������ʹ�ü���������Ϊ 2 ��������ʾ�����������ڱ�ʹ�ö�������Ӧ�Ľ��̴��ڻ״̬
+	atomic_set(&tsk->usage, 2);  //把新进程描述符的使用计数器设置为 2 ，用来表示进程描述正在被使用而且其相应的进程处于活动状态
 #ifdef CONFIG_BLK_DEV_IO_TRACE
 	tsk->btrace_seq = 0;
 #endif
@@ -546,7 +546,7 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 
 	kcov_task_init(tsk);
 
-	return tsk;  //�����½��̵Ľ���������ָ��
+	return tsk;  //返回新进程的进程描述符指针
 
 free_stack:
 	free_thread_stack(tsk);
@@ -1246,12 +1246,12 @@ static int copy_files(unsigned long clone_flags, struct task_struct *tsk)
 	if (!oldf)
 		goto out;
 
-	if (clone_flags & CLONE_FILES) {  //�������������������1
+	if (clone_flags & CLONE_FILES) {  //如果共享，共享计数加1
 		atomic_inc(&oldf->count);
 		goto out;
 	}
 
-	newf = dup_fd(oldf, &error);  //������ǹ������͸���һ��
+	newf = dup_fd(oldf, &error);  //如果不是共享，就复制一份
 	if (!newf)
 		goto out;
 
@@ -1476,7 +1476,7 @@ static __latent_entropy struct task_struct *copy_process(
 	int retval;
 	struct task_struct *p;
 
-	if ((clone_flags & (CLONE_NEWNS|CLONE_FS)) == (CLONE_NEWNS|CLONE_FS))  //���clone_flags�����ݱ�־��һ����-CLONE_NEWNS|CLONE_FS  ��־������ʱ���ش���
+	if ((clone_flags & (CLONE_NEWNS|CLONE_FS)) == (CLONE_NEWNS|CLONE_FS))  //检查clone_flags所传递标志的一致性-CLONE_NEWNS|CLONE_FS  标志被设置时返回错误
 		return ERR_PTR(-EINVAL);
 
 	if ((clone_flags & (CLONE_NEWUSER|CLONE_FS)) == (CLONE_NEWUSER|CLONE_FS))
@@ -1486,7 +1486,7 @@ static __latent_entropy struct task_struct *copy_process(
 	 * Thread groups must share signals as well, and detached threads
 	 * can only be started up within the thread group.
 	 */
-	if ((clone_flags & CLONE_THREAD) && !(clone_flags & CLONE_SIGHAND))  //CLONE_THREAD��־λ����λ��CLONE_SIGHAND��־��ֵ0����ͬһ�߳��������������̱��빲���źţ�
+	if ((clone_flags & CLONE_THREAD) && !(clone_flags & CLONE_SIGHAND))  //CLONE_THREAD标志位被置位，CLONE_SIGHAND标志被值0，（同一线程组中轻量级进程必须共享信号）
 		return ERR_PTR(-EINVAL);
 
 	/*
@@ -1494,7 +1494,7 @@ static __latent_entropy struct task_struct *copy_process(
 	 * thread groups also imply shared VM. Blocking this case allows
 	 * for various simplifications in other code.
 	 */
-	if ((clone_flags & CLONE_SIGHAND) && !(clone_flags & CLONE_VM))  //�����źŴ������������������Ҳ���빲���ڴ�������
+	if ((clone_flags & CLONE_SIGHAND) && !(clone_flags & CLONE_VM))  //共享信号处理程序的轻量级进程也必须共享内存描述符
 		return ERR_PTR(-EINVAL);
 
 	/*
@@ -1518,12 +1518,12 @@ static __latent_entropy struct task_struct *copy_process(
 			return ERR_PTR(-EINVAL);
 	}
 
-	retval = security_task_create(clone_flags);  //��ȫ���
+	retval = security_task_create(clone_flags);  //安全检查
 	if (retval)
 		goto fork_out;
 
 	retval = -ENOMEM;
-	p = dup_task_struct(current, node);  //����������task_struct�ĸ����������ӳ�����µ�task_structʵ���������κο��е��ں��ڴ�λ�÷���
+	p = dup_task_struct(current, node);  //建立父进程task_struct的副本，用于子程序的新的task_struct实例可以在任何空闲的内核内存位置分配
 	if (!p)
 		goto fork_out;
 
@@ -1537,14 +1537,14 @@ static __latent_entropy struct task_struct *copy_process(
 #endif
 	retval = -EAGAIN;
 	if (atomic_read(&p->real_cred->user->processes) >=
-			task_rlimit(p, RLIMIT_NPROC)) {            //����û��Ľ�����
+			task_rlimit(p, RLIMIT_NPROC)) {            //检查用户的进程数
 		if (p->real_cred->user != INIT_USER &&
-		    !capable(CAP_SYS_RESOURCE) && !capable(CAP_SYS_ADMIN))  //��ǰ�û�ʱroot���߷������ر��Ȩ��
+		    !capable(CAP_SYS_RESOURCE) && !capable(CAP_SYS_ADMIN))  //当前用户时root或者分配了特别的权限
 			goto bad_fork_free;
 	}
 	current->flags &= ~PF_NPROC_EXCEEDED;
 
-	retval = copy_creds(p, clone_flags);  //copy or share creds ֤���Ž��̵��û���ʶ�������ʶ���ͷ���Ȩ��
+	retval = copy_creds(p, clone_flags);  //copy or share creds 证书存放进程的用户标识符，组标识符和访问权限
 	if (retval < 0)
 		goto bad_fork_free;
 
@@ -1554,7 +1554,7 @@ static __latent_entropy struct task_struct *copy_process(
 	 * to stop root fork bombs.
 	 */
 	retval = -EAGAIN;
-	if (nr_threads >= max_threads)  //���ϵͳ�еĽ�����
+	if (nr_threads >= max_threads)  //检查系统中的进程数
 		goto bad_fork_cleanup_count;
 
 	delayacct_tsk_init(p);	/* Must remain after dup_task_struct() */
@@ -1589,7 +1589,7 @@ static __latent_entropy struct task_struct *copy_process(
 
 	posix_cpu_timers_init(p);
 
-	p->start_time = ktime_get_ns();   //��ʼ������������
+	p->start_time = ktime_get_ns();   //初始化进程描述符
 	p->real_start_time = ktime_get_boot_ns();
 	p->io_context = NULL;
 	p->audit_context = NULL;
@@ -1640,7 +1640,7 @@ static __latent_entropy struct task_struct *copy_process(
 #endif
 
 	/* Perform scheduler related setup. Assign this task to a CPU. */
-	retval = sched_fork(clone_flags, p);   //Ϊ�½������õ�����ز���
+	retval = sched_fork(clone_flags, p);   //为新进程设置调度相关参数
 	if (retval)
 		goto bad_fork_cleanup_policy;
 
@@ -1652,35 +1652,35 @@ static __latent_entropy struct task_struct *copy_process(
 		goto bad_fork_cleanup_perf;
 	/* copy all the process information */
 	shm_init_task(p);
-	retval = copy_semundo(clone_flags, p);  //�����ź����Ĺ�������
+	retval = copy_semundo(clone_flags, p);  //处理信号量的共享问题
 	if (retval)
 		goto bad_fork_cleanup_audit;
-	retval = copy_files(clone_flags, p);  //�������̴򿪵��ļ������Ƿ�����
+	retval = copy_files(clone_flags, p);  //处理进程打开的文件，（是否共享）
 	if (retval)
 		goto bad_fork_cleanup_semundo;
-	retval = copy_fs(clone_flags, p);  //���ƻ����ļ�ϵͳ��Ϣ
+	retval = copy_fs(clone_flags, p);  //复制或共享文件系统信息
 	if (retval)
 		goto bad_fork_cleanup_files;
-	retval = copy_sighand(clone_flags, p);  //�źŴ��������Ƿ���
+	retval = copy_sighand(clone_flags, p);  //信号处理程序是否共享
 	if (retval)
 		goto bad_fork_cleanup_fs;
-	retval = copy_signal(clone_flags, p);  //�źŽṹ���Ƿ�����ֻ��ͬһ���߳�����߳�֮��ŻṲ��
+	retval = copy_signal(clone_flags, p);  //信号结构体是否共享，只有同一个线程组的线程之间才会共享
 	if (retval)
 		goto bad_fork_cleanup_sighand;
-	retval = copy_mm(clone_flags, p);  //ֻ��ͬ���߳�����̲߳ŻṲ���ڴ�
+	retval = copy_mm(clone_flags, p);  //只有同意线程组的线程才会共享内存
 	if (retval)
 		goto bad_fork_cleanup_signal;
-	retval = copy_namespaces(clone_flags, p);  //�����ռ�
+	retval = copy_namespaces(clone_flags, p);  //命名空间
 	if (retval)
 		goto bad_fork_cleanup_mm;
-	retval = copy_io(clone_flags, p);  //I/O ������
+	retval = copy_io(clone_flags, p);  //I/O 上下文
 	if (retval)
 		goto bad_fork_cleanup_namespaces;
-	retval = copy_thread_tls(clone_flags, stack_start, stack_size, p, tls);  //���Ƶ�ǰ���̵ļĴ���ֵ�����޸�һ���ּĴ���
+	retval = copy_thread_tls(clone_flags, stack_start, stack_size, p, tls);  //复制当前进程的寄存器值，并修改一部分寄存器
 	if (retval)
 		goto bad_fork_cleanup_io;
 
-	if (pid != &init_struct_pid) {  //Ϊ�½��̷�����̺ţ����½��������Ľ��̺������ռ�һֱ������ÿһ����̺������ռ�Ϊ�½��̷���һ�����̺�
+	if (pid != &init_struct_pid) {  //为新进程分配进程号，从新进程所属的进程号命名空间一直到根，每一层进程号命名空间为新进程分配一个进程号
 		pid = alloc_pid(p->nsproxy->pid_ns_for_children);
 		if (IS_ERR(pid)) {
 			retval = PTR_ERR(pid);
@@ -1722,8 +1722,8 @@ static __latent_entropy struct task_struct *copy_process(
 	clear_all_latency_tracing(p);
 
 	/* ok, now we should be set up.. */
-	p->pid = pid_nr(pid);          //pid_nr�����Ը�����pidʵ������ȫ����ֵPID
-	if (clone_flags & CLONE_THREAD) {  //����������½����˳�ʱ���͸������̵��źţ������½����������߳���
+	p->pid = pid_nr(pid);          //pid_nr函数对给定的pid实例计算全局数值PID
+	if (clone_flags & CLONE_THREAD) {  //分情况设置新进程退出时发送给父进程的信号，设置新进程所属的线程组
 		p->exit_signal = -1;
 		p->group_leader = current->group_leader;
 		p->tgid = current->tgid;
@@ -1732,7 +1732,7 @@ static __latent_entropy struct task_struct *copy_process(
 			p->exit_signal = current->group_leader->exit_signal;
 		else
 			p->exit_signal = (clone_flags & CSIGNAL);
-		p->group_leader = p;  //�½��̵��鳤���Լ�
+		p->group_leader = p;  //新进程的组长是自己
 		p->tgid = p->pid;
 	}
 
@@ -1751,7 +1751,7 @@ static __latent_entropy struct task_struct *copy_process(
 	 * between here and cgroup_post_fork() if an organisation operation is in
 	 * progress.
 	 */
-	retval = cgroup_can_fork(p);  //������Ľ���������������Ƿ������½����̣�
+	retval = cgroup_can_fork(p);  //控制组的进程数控制器检查是否允许新建进程，
 	if (retval)
 		goto bad_fork_free_pid;
 
@@ -1800,25 +1800,25 @@ static __latent_entropy struct task_struct *copy_process(
 		ptrace_init_task(p, (clone_flags & CLONE_PTRACE) || trace);
 
 		init_task_pid(p, PIDTYPE_PID, pid);
-		if (thread_group_leader(p)) {
+		if (thread_group_leader(p)) {  // 创建新进程
 			init_task_pid(p, PIDTYPE_PGID, task_pgrp(current));
 			init_task_pid(p, PIDTYPE_SID, task_session(current));
 
-			if (is_child_reaper(pid)) {
-				ns_of_pid(pid)->child_reaper = p;
-				p->signal->flags |= SIGNAL_UNKILLABLE;
+			if (is_child_reaper(pid)) {  // 如果新进程是1号进程
+				ns_of_pid(pid)->child_reaper = p;  // 新进程是进程命名空间中的孤儿领养者
+				p->signal->flags |= SIGNAL_UNKILLABLE;  // 忽略致命的信号，因为1号进程是不能被杀死的(如果把1号进程杀死了，谁来领养孤儿进程呢)
 			}
 
 			p->signal->leader_pid = pid;
 			p->signal->tty = tty_kref_get(current->signal->tty);
 			list_add_tail(&p->sibling, &p->real_parent->children);
 			list_add_tail_rcu(&p->tasks, &init_task.tasks);
-			attach_pid(p, PIDTYPE_PGID);       //����ɢ�б�
+			attach_pid(p, PIDTYPE_PGID);       //挂入散列表
 			attach_pid(p, PIDTYPE_SID);
 			__this_cpu_inc(process_counts);
-		} else {
-			current->signal->nr_threads++;
-			atomic_inc(&current->signal->live);
+		} else {  // 创建新线程
+			current->signal->nr_threads++;  // 线程组的线程计数值加1
+			atomic_inc(&current->signal->live);  // 原子变量的加1
 			atomic_inc(&current->signal->sigcnt);
 			list_add_tail_rcu(&p->thread_group,
 					  &p->group_leader->thread_group);
@@ -1826,7 +1826,7 @@ static __latent_entropy struct task_struct *copy_process(
 					  &p->signal->thread_head);
 		}
 		attach_pid(p, PIDTYPE_PID);
-		nr_threads++;
+		nr_threads++;  // 线程计数加1
 	}
 
 	total_forks++;
@@ -1842,7 +1842,7 @@ static __latent_entropy struct task_struct *copy_process(
 	trace_task_newtask(p, clone_flags);
 	uprobe_copy_process(p, clone_flags);
 
-	return p;  //�����ӽ���������
+	return p;  //返回子进程描述符
 
 bad_fork_cancel_cgroup:
 	spin_unlock(&current->sighand->siglock);
@@ -1923,11 +1923,11 @@ struct task_struct *fork_idle(int cpu)
  * It copies the process, and if successful kick-starts
  * it and waits for it to finish using the VM if required.
  */
-long _do_fork(unsigned long clone_flags,  //克隆标志，最低字节指定进程退出时是否发给父进程信�?	      unsigned long stack_start,  //只有在创建线程时有意义，用来指定新线程的用户栈的起始地址
-	      unsigned long stack_size,  //只有在创建线程时有意义，用来指定新线程的用户栈的长度
-	      int __user *parent_tidptr, //只有在创建线程时有意义，新线程保存自己的进程标识符的位置 
-	      int __user *child_tidptr,  //只有在创建新线程有意义，存放新线程保存自己的进程标识符的位置
-	      unsigned long tls)   //只有在创建新线程有意义，如果参数clone_flags指定了标志位CLONE_SETTLS，那么参数tls指定新线程的线程本地存储地址
+long _do_fork(unsigned long clone_flags,  //鍏嬮殕鏍囧織锛屾渶浣庡瓧鑺傛寚瀹氳繘绋嬮€€鍑烘椂鏄惁鍙戠粰鐖惰繘绋嬩俊鍙?	      unsigned long stack_start,  //鍙湁鍦ㄥ垱寤虹嚎绋嬫椂鏈夋剰涔夛紝鐢ㄦ潵鎸囧畾鏂扮嚎绋嬬殑鐢ㄦ埛鏍堢殑璧峰鍦板潃
+	      unsigned long stack_size,  //鍙湁鍦ㄥ垱寤虹嚎绋嬫椂鏈夋剰涔夛紝鐢ㄦ潵鎸囧畾鏂扮嚎绋嬬殑鐢ㄦ埛鏍堢殑闀垮害
+	      int __user *parent_tidptr, //鍙湁鍦ㄥ垱寤虹嚎绋嬫椂鏈夋剰涔夛紝鏂扮嚎绋嬩繚瀛樿嚜宸辩殑杩涚▼鏍囪瘑绗︾殑浣嶇疆 
+	      int __user *child_tidptr,  //鍙湁鍦ㄥ垱寤烘柊绾跨▼鏈夋剰涔夛紝瀛樻斁鏂扮嚎绋嬩繚瀛樿嚜宸辩殑杩涚▼鏍囪瘑绗︾殑浣嶇疆
+	      unsigned long tls)   //鍙湁鍦ㄥ垱寤烘柊绾跨▼鏈夋剰涔夛紝濡傛灉鍙傛暟clone_flags鎸囧畾浜嗘爣蹇椾綅CLONE_SETTLS锛岄偅涔堝弬鏁皌ls鎸囧畾鏂扮嚎绋嬬殑绾跨▼鏈湴瀛樺偍鍦板潃
 {
 	struct task_struct *p;
 	int trace = 0;
@@ -1951,7 +1951,7 @@ long _do_fork(unsigned long clone_flags,  //克隆标志，最低字节指定进
 			trace = 0;
 	}
 
-	p = copy_process(clone_flags, stack_start, stack_size,     //���ƽ��������������ظմ�����task_struct�ĵ�ַ
+	p = copy_process(clone_flags, stack_start, stack_size,     //复制进程描述符，返回刚创建的task_struct的地址
 			 child_tidptr, NULL, trace, tls, NUMA_NO_NODE);
 	add_latent_entropy();
 	/*
@@ -1964,7 +1964,7 @@ long _do_fork(unsigned long clone_flags,  //克隆标志，最低字节指定进
 
 		trace_sched_process_fork(current, p);
 
-		pid = get_task_pid(p, PIDTYPE_PID);//ͨ������ pidmap_array λͼ��Ϊ�ӽ��̷����µ�PID
+		pid = get_task_pid(p, PIDTYPE_PID);//通过查找 pidmap_array 位图，为子进程分配新的PID
 		nr = pid_vnr(pid);
 
 		if (clone_flags & CLONE_PARENT_SETTID)
@@ -1997,10 +1997,10 @@ long _do_fork(unsigned long clone_flags,  //克隆标志，最低字节指定进
 #ifndef CONFIG_HAVE_COPY_THREAD_TLS
 /* For compatibility with architectures that call do_fork directly rather than
  * using the syscall entry points below. */
-long do_fork(unsigned long clone_flags,  //克隆标志，最低字节指定进程退出时是否发给父进程信�?	      unsigned long stack_start,  //只有在创建线程时有意义，用来指定新线程的用户栈的起始地址
-	      unsigned long stack_size,  //只有在创建线程时有意义，用来指定新线程的用户栈的长度
-	      int __user *parent_tidptr, //只有在创建线程时有意义，新线程保存自己的进程标识符的位置 
-	      int __user *child_tidptr)  //只有在创建新线程有意义，存放新线程保存自己的进程标识符的位置
+long do_fork(unsigned long clone_flags,  //鍏嬮殕鏍囧織锛屾渶浣庡瓧鑺傛寚瀹氳繘绋嬮€€鍑烘椂鏄惁鍙戠粰鐖惰繘绋嬩俊鍙?	      unsigned long stack_start,  //鍙湁鍦ㄥ垱寤虹嚎绋嬫椂鏈夋剰涔夛紝鐢ㄦ潵鎸囧畾鏂扮嚎绋嬬殑鐢ㄦ埛鏍堢殑璧峰鍦板潃
+	      unsigned long stack_size,  //鍙湁鍦ㄥ垱寤虹嚎绋嬫椂鏈夋剰涔夛紝鐢ㄦ潵鎸囧畾鏂扮嚎绋嬬殑鐢ㄦ埛鏍堢殑闀垮害
+	      int __user *parent_tidptr, //鍙湁鍦ㄥ垱寤虹嚎绋嬫椂鏈夋剰涔夛紝鏂扮嚎绋嬩繚瀛樿嚜宸辩殑杩涚▼鏍囪瘑绗︾殑浣嶇疆 
+	      int __user *child_tidptr)  //鍙湁鍦ㄥ垱寤烘柊绾跨▼鏈夋剰涔夛紝瀛樻斁鏂扮嚎绋嬩繚瀛樿嚜宸辩殑杩涚▼鏍囪瘑绗︾殑浣嶇疆
 {
 	return _do_fork(clone_flags, stack_start, stack_size,
 			parent_tidptr, child_tidptr, 0);

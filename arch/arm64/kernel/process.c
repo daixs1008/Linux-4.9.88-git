@@ -347,6 +347,7 @@ struct task_struct *__switch_to(struct task_struct *prev,
 	/*
 	 * Complete any pending TLB or cache maintenance on this CPU in case
 	 * the thread migrates to a different CPU.
+	 * 在线程迁移到其他CPU的情况下，在此CPU上完成所有挂起的TLB或缓存维护。
 	 */
 	dsb(ish);
 
